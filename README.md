@@ -2,18 +2,18 @@
 
 Local Community Scripts style web UI for browsing, reading, and deploying Proxmox Helper Scripts to one or more Proxmox hosts over SSH.
 
-This project is meant to feel like a local deployment companion for the official Community Scripts site, while giving you your own searchable script library, host settings, SSH key generation, and deploy terminal.
+This project is meant to feel like a local companion to the official Community Scripts site, while giving you your own search, host settings, SSH key generation, deploy terminal, and multi-host support.
 
-## What It Does
+## Highlights
 
-- Local script library UI with category browsing
-- Detail/read views similar to the official site
-- Search across all scripts
-- Deploy terminal with normal SSH or persistent reconnect mode
-- Per-host SSH settings
-- Generated SSH key support
-- Ubuntu installer with Node.js + PM2
-- Proxmox host installer that can create a dedicated Ubuntu LXC and run the app there instead of on the host
+- Local script library with official-style categories
+- Read/detail view similar to the official site
+- Search across the full script catalog
+- Deploy over SSH with normal mode or persistent reconnect mode
+- Per-host SSH auth settings
+- SSH key generation from the UI
+- Automatic Ubuntu install with Node.js + PM2
+- Automatic Proxmox host flow that can create a dedicated Ubuntu LXC for the app
 
 ## Repository Layout
 
@@ -26,83 +26,135 @@ LICENSE
 README.md
 ```
 
-## Install Modes
+## Install Overview
 
-`setup.sh` supports two main install paths:
+`setup.sh` supports two main paths:
 
-### 1. Ubuntu / Debian Host Install
+### 1. Host Mode
 
-This installs directly on the current Ubuntu or Debian system.
+Installs directly on the current Ubuntu or Debian system.
 
 It will:
 
-1. Install Node.js
-2. Install PM2
-3. Clone or update the repo
-4. Run `npm install`
-5. Start the app with PM2
-6. Save the PM2 process and configure PM2 startup with systemd
+1. Install base packages
+2. Install Node.js
+3. Install PM2
+4. Clone or update this repo
+5. Run `npm install`
+6. Start the app with PM2
+7. Save PM2 and hook it into systemd when available
 
-### 2. Proxmox Host Install With Dedicated LXC
+### 2. Proxmox LXC Mode
 
-This is the recommended path when you run the installer on a Proxmox host.
+When you run the installer on a Proxmox host, it can create a dedicated Ubuntu LXC and install the app there instead of on the host itself.
 
 It will:
 
 1. Detect that it is running on Proxmox
-2. Create a dedicated Ubuntu LXC
-3. Start the container
-4. Download and run `setup.sh` inside the container in host mode
-5. Install Node.js and PM2 inside that container
-6. Start the app there, instead of leaving it on the Proxmox host itself
+2. Auto-detect the Proxmox host IP if you did not pass `--host`
+3. Create a dedicated Ubuntu LXC
+4. Start the container
+5. Download and run `setup.sh` inside the new container
+6. Install Node.js and PM2 inside that LXC
+7. Start the app there
 
-So the app lives inside its own LXC, not directly on the host.
+That keeps the app off the Proxmox host itself.
 
-## Quick Start After You Upload To GitHub
+## Important GitHub URL Note
 
-Replace `YOUR_GITHUB_USER/YOUR_REPO` and the Proxmox host IP:
+For installation, use the raw file URL, not the GitHub page URL.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/setup.sh | sudo bash -s -- --repo https://github.com/YOUR_GITHUB_USER/YOUR_REPO.git --host 192.168.8.12
+Your browser URL:
+
+```text
+https://github.com/Gam3ReaTr0/Proxmox-helper-script-locally/blob/main/setup.sh
 ```
 
-If you run that command on:
+Install URL:
 
-- a **Proxmox host**, it will default to **LXC mode**
-- a normal **Ubuntu/Debian box**, it will default to **host mode**
-
-## Common Install Commands
-
-### Proxmox host -> create dedicated LXC automatically
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/setup.sh | sudo bash -s -- \
-  --repo https://github.com/YOUR_GITHUB_USER/YOUR_REPO.git \
-  --host 192.168.8.12
+```text
+https://raw.githubusercontent.com/Gam3ReaTr0/Proxmox-helper-script-locally/main/setup.sh
 ```
 
-### Force install directly on Ubuntu instead of creating an LXC
+## Quick Start
+
+### Run on a Proxmox host and let it create its own LXC
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/setup.sh | sudo bash -s -- \
-  --mode host \
-  --repo https://github.com/YOUR_GITHUB_USER/YOUR_REPO.git \
-  --host 192.168.8.12
+curl -fsSL https://raw.githubusercontent.com/Gam3ReaTr0/Proxmox-helper-script-locally/main/setup.sh | sudo bash -s --
 ```
 
-### Create a specific LXC ID with custom resources
+That will:
+
+- detect the Proxmox host IP automatically
+- create the LXC automatically
+- install the app inside the LXC
+
+### Run on a normal Ubuntu or Debian machine
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/setup.sh | sudo bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/Gam3ReaTr0/Proxmox-helper-script-locally/main/setup.sh | sudo bash -s -- --mode host
+```
+
+## LXC Networking
+
+By default, the new LXC uses DHCP:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Gam3ReaTr0/Proxmox-helper-script-locally/main/setup.sh | sudo bash -s -- --mode lxc --lxc-ip dhcp
+```
+
+If you want people to choose their own IP for the new LXC, pass a static IP and gateway:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Gam3ReaTr0/Proxmox-helper-script-locally/main/setup.sh | sudo bash -s -- \
   --mode lxc \
-  --repo https://github.com/YOUR_GITHUB_USER/YOUR_REPO.git \
-  --host 192.168.8.12 \
+  --lxc-ip 192.168.8.50/24 \
+  --lxc-gateway 192.168.8.1
+```
+
+That makes the created LXC come up with that exact address.
+
+## Common Commands
+
+### Proxmox host, automatic LXC creation
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Gam3ReaTr0/Proxmox-helper-script-locally/main/setup.sh | sudo bash -s -- \
+  --mode lxc
+```
+
+### Proxmox host, static IP for the created LXC
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Gam3ReaTr0/Proxmox-helper-script-locally/main/setup.sh | sudo bash -s -- \
+  --mode lxc \
   --lxc-id 301 \
   --lxc-name proxmox-helper-local \
   --lxc-memory 2048 \
   --lxc-cores 2 \
-  --lxc-disk 8
+  --lxc-disk 8 \
+  --lxc-ip 192.168.8.50/24 \
+  --lxc-gateway 192.168.8.1
 ```
+
+### Force direct install on Ubuntu instead of creating an LXC
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Gam3ReaTr0/Proxmox-helper-script-locally/main/setup.sh | sudo bash -s -- \
+  --mode host \
+  --host 192.168.8.12
+```
+
+### Override the default Proxmox host IP used by the app
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Gam3ReaTr0/Proxmox-helper-script-locally/main/setup.sh | sudo bash -s -- \
+  --mode lxc \
+  --host 192.168.8.12
+```
+
+If you omit `--host` on a Proxmox host, the installer now tries to detect it automatically.
 
 ## setup.sh Options
 
@@ -125,20 +177,33 @@ curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/set
 --lxc-cores <count>
 --lxc-disk <gb>
 --bridge <name>
+--lxc-ip <dhcp|ip/cidr>
+--lxc-gateway <ip>
 ```
 
-### Important Options
+## What The Installer Configures
 
-- `--repo`: required when installing from GitHub/raw and especially for LXC mode
-- `--host`: default Proxmox host IP/hostname the app will use on first boot
-- `--mode host`: install directly on the current Ubuntu/Debian system
-- `--mode lxc`: create a dedicated Ubuntu LXC on Proxmox and install inside it
-- `--lxc-storage`: storage for the container root disk
-- `--lxc-template-storage`: storage where Proxmox keeps downloaded templates, usually `local`
+The backend reads:
 
-## Runtime
+- `PORT`
+- `PROXMOX_HOST_IP`
 
-The app runs with PM2.
+The installer writes those automatically into:
+
+```text
+.runtime.env
+ecosystem.config.cjs
+```
+
+The app stores local runtime data, SSH keys, and saved host settings in:
+
+```text
+data/
+```
+
+That directory is ignored by git so you do not accidentally upload private keys or local settings.
+
+## PM2 Runtime
 
 Useful commands after install:
 
@@ -149,7 +214,7 @@ pm2 restart proxmox-helper-local
 pm2 save
 ```
 
-If you installed in LXC mode, useful Proxmox commands are:
+If the app was installed inside an LXC, useful Proxmox commands are:
 
 ```bash
 pct status 301
@@ -158,26 +223,9 @@ pct stop 301
 pct start 301
 ```
 
-## Configuration
-
-The backend reads these environment values:
-
-- `PORT`
-- `PROXMOX_HOST_IP`
-
-The installer writes those values for you automatically.
-
-The app stores runtime settings and generated SSH keys in:
-
-```text
-data/
-```
-
-That folder is ignored by git so you do not accidentally upload private keys or host settings.
-
 ## Manual Local Run
 
-If you just want to run it yourself without `setup.sh`:
+If you just want to run it manually:
 
 ```bash
 npm install
@@ -190,9 +238,9 @@ Then open:
 http://YOUR_SERVER_IP:3000
 ```
 
-## Uploading To GitHub
+## Uploading Through GitHub In The Browser
 
-If you upload through the GitHub website in the browser, make sure these files are included:
+If you upload through the GitHub website instead of git on the server, make sure these files are included:
 
 - `server.js`
 - `public/index.html`
@@ -202,10 +250,12 @@ If you upload through the GitHub website in the browser, make sure these files a
 - `LICENSE`
 - `.gitignore`
 
-Browser upload is fine. The one-line installer runs `setup.sh` with `bash`, so it does not depend on GitHub preserving executable file permissions.
+That workflow is fine. The install command runs `setup.sh` with `bash`, so it does not depend on GitHub preserving executable permissions.
 
 ## Notes
 
-- On Proxmox hosts, `setup.sh` defaults to creating a dedicated Ubuntu LXC
-- On normal Ubuntu/Debian systems, it installs directly on the current machine
-- The current LXC flow expects a GitHub repo URL because the new container downloads `setup.sh` from GitHub raw
+- On Proxmox hosts, the default `auto` mode creates a dedicated Ubuntu LXC
+- On normal Ubuntu/Debian machines, the default `auto` mode installs directly on the current system
+- If you omit `--host` on Proxmox, the installer tries to auto-detect the Proxmox host IP
+- If you omit `--lxc-ip`, the created LXC uses DHCP
+- If you want a fixed IP for the created LXC, use `--lxc-ip` and `--lxc-gateway`

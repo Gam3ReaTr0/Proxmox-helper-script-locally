@@ -7,20 +7,21 @@ DEFAULT_INSTALL_DIR="/opt/$APP_NAME"
 DEFAULT_PORT=3000
 DEFAULT_PROXMOX_HOST_IP="192.168.8.12"
 DEFAULT_NODE_MAJOR=20
+DEFAULT_REPO_URL="https://github.com/Gam3ReaTr0/Proxmox-helper-script-locally.git"
 
 DEFAULT_LXC_NAME="$APP_NAME"
 DEFAULT_LXC_MEMORY=2048
 DEFAULT_LXC_CORES=2
 DEFAULT_LXC_DISK=8
 DEFAULT_LXC_BRIDGE="vmbr0"
-DEFAULT_LXC_TEMPLATE_STORAGE="local"
+DEFAULT_LXC_TEMPLATE_STORAGE=""
 
 MODE="${MODE:-auto}"
-REPO_URL="${REPO_URL:-}"
+REPO_URL="${REPO_URL:-$DEFAULT_REPO_URL}"
 BRANCH="${BRANCH:-$DEFAULT_BRANCH}"
 INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 PORT="${PORT:-$DEFAULT_PORT}"
-PROXMOX_HOST_IP="${PROXMOX_HOST_IP:-$DEFAULT_PROXMOX_HOST_IP}"
+PROXMOX_HOST_IP="${PROXMOX_HOST_IP:-}"
 NODE_MAJOR="${NODE_MAJOR:-$DEFAULT_NODE_MAJOR}"
 
 LXC_ID="${LXC_ID:-}"
@@ -32,6 +33,8 @@ LXC_MEMORY="${LXC_MEMORY:-$DEFAULT_LXC_MEMORY}"
 LXC_CORES="${LXC_CORES:-$DEFAULT_LXC_CORES}"
 LXC_DISK="${LXC_DISK:-$DEFAULT_LXC_DISK}"
 LXC_BRIDGE="${LXC_BRIDGE:-$DEFAULT_LXC_BRIDGE}"
+LXC_IP="${LXC_IP:-dhcp}"
+LXC_GATEWAY="${LXC_GATEWAY:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_REPO_SOURCE=0
@@ -77,18 +80,20 @@ Options:
   --lxc-id <id>                  LXC ID to create
   --lxc-name <name>              LXC hostname/name
   --lxc-storage <storage>        Rootfs storage for the LXC (auto when omitted)
-  --lxc-template-storage <name>  Template storage for vzdump templates (default: local)
+  --lxc-template-storage <name>  Template storage for vzdump templates (auto when omitted)
   --lxc-template <template>      Explicit Ubuntu template filename
   --lxc-memory <mb>              LXC memory in MB (default: 2048)
   --lxc-cores <count>            LXC CPU cores (default: 2)
   --lxc-disk <gb>                LXC root disk size in GB (default: 8)
   --bridge <name>                Proxmox bridge for the LXC (default: vmbr0)
+  --lxc-ip <dhcp|ip/cidr>        DHCP or a static IP/CIDR for the new LXC
+  --lxc-gateway <ip>             Gateway for a static LXC IP
   -h, --help                     Show this help
 
 Examples:
-  sudo bash setup.sh --repo https://github.com/Gam3ReaTr0/your-repo.git --host 192.168.8.12
-  sudo bash setup.sh --mode host --repo https://github.com/Gam3ReaTr0/your-repo.git --host 192.168.8.12
-  sudo bash setup.sh --mode lxc --repo https://github.com/Gam3ReaTr0/your-repo.git --host 192.168.8.12 --lxc-id 301
+  sudo bash setup.sh --host 192.168.8.12
+  sudo bash setup.sh --mode host --repo https://github.com/Gam3ReaTr0/Proxmox-helper-script-locally.git --host 192.168.8.12
+  sudo bash setup.sh --mode lxc --lxc-id 301 --lxc-ip 192.168.8.50/24 --lxc-gateway 192.168.8.1
 EOF
 }
 
@@ -182,6 +187,16 @@ while [[ $# -gt 0 ]]; do
       LXC_BRIDGE="$2"
       shift 2
       ;;
+    --lxc-ip)
+      [[ $# -ge 2 ]] || fail "Missing value for --lxc-ip"
+      LXC_IP="$2"
+      shift 2
+      ;;
+    --lxc-gateway)
+      [[ $# -ge 2 ]] || fail "Missing value for --lxc-gateway"
+      LXC_GATEWAY="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -199,6 +214,8 @@ done
 [[ "$LXC_CORES" =~ ^[0-9]+$ ]] || fail "LXC cores must be numeric"
 [[ "$LXC_DISK" =~ ^[0-9]+$ ]] || fail "LXC disk size must be numeric"
 [[ -z "$LXC_ID" || "$LXC_ID" =~ ^[0-9]+$ ]] || fail "LXC ID must be numeric"
+[[ "$LXC_IP" == "dhcp" || "$LXC_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]] || fail "LXC IP must be 'dhcp' or an IP/CIDR like 192.168.8.50/24"
+[[ -z "$LXC_GATEWAY" || "$LXC_GATEWAY" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "LXC gateway must be an IPv4 address"
 
 if [[ $EUID -ne 0 ]]; then
   fail "Run this script with sudo or as root"
@@ -263,6 +280,39 @@ EOF
 install_pm2() {
   log "Installing PM2"
   npm install -g pm2
+}
+
+detect_primary_ipv4() {
+  local detected=""
+
+  if has_command ip; then
+    detected="$(ip -o -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}')"
+  fi
+
+  if [[ -z "$detected" ]] && has_command hostname; then
+    detected="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  fi
+
+  printf "%s\n" "$detected"
+}
+
+resolve_proxmox_host_ip() {
+  if [[ -n "$PROXMOX_HOST_IP" ]]; then
+    printf "%s\n" "$PROXMOX_HOST_IP"
+    return
+  fi
+
+  if is_proxmox_host; then
+    local detected
+    detected="$(detect_primary_ipv4)"
+    if [[ -n "$detected" ]]; then
+      log "Auto-detected Proxmox host IP: $detected"
+      printf "%s\n" "$detected"
+      return
+    fi
+  fi
+
+  printf "%s\n" "$DEFAULT_PROXMOX_HOST_IP"
 }
 
 sync_repo() {
@@ -379,6 +429,21 @@ choose_mode() {
       fail "Unsupported mode: $MODE"
       ;;
   esac
+}
+
+build_lxc_net0() {
+  local net0="name=eth0,bridge=${LXC_BRIDGE}"
+
+  if [[ "$LXC_IP" == "dhcp" ]]; then
+    net0="${net0},ip=dhcp"
+  else
+    net0="${net0},ip=${LXC_IP}"
+    if [[ -n "$LXC_GATEWAY" ]]; then
+      net0="${net0},gw=${LXC_GATEWAY}"
+    fi
+  fi
+
+  printf "%s\n" "$net0"
 }
 
 github_raw_setup_url() {
@@ -510,6 +575,9 @@ create_lxc() {
   local template_storage="$2"
   local template="$3"
   local storage="$4"
+  local net0
+
+  net0="$(build_lxc_net0)"
 
   if pct status "$id" >/dev/null 2>&1; then
     fail "LXC $id already exists; choose another --lxc-id"
@@ -524,7 +592,7 @@ create_lxc() {
     --memory "$LXC_MEMORY" \
     --swap 512 \
     --rootfs "${storage}:${LXC_DISK}" \
-    --net0 "name=eth0,bridge=${LXC_BRIDGE},ip=dhcp" \
+    --net0 "$net0" \
     --features "nesting=1,keyctl=1" \
     --onboot 1 \
     --tags "$APP_NAME"
@@ -561,13 +629,24 @@ lxc_primary_ip() {
 print_lxc_summary() {
   local id="$1"
   local ip="$2"
+  local requested_ip=""
+
+  if [[ "$LXC_IP" != "dhcp" ]]; then
+    requested_ip="${LXC_IP%%/*}"
+  fi
 
   log "LXC install complete"
   printf "\nMode: lxc\n"
   printf "LXC ID: %s\n" "$id"
   printf "LXC name: %s\n" "$LXC_NAME"
   printf "Default Proxmox host inside app: %s\n" "$PROXMOX_HOST_IP"
-  if [[ -n "$ip" ]]; then
+  if [[ -n "$requested_ip" ]]; then
+    printf "Configured LXC IP: %s\n" "$requested_ip"
+    if [[ -n "$LXC_GATEWAY" ]]; then
+      printf "Configured gateway: %s\n" "$LXC_GATEWAY"
+    fi
+    printf "Open: http://%s:%s\n" "$requested_ip" "$PORT"
+  elif [[ -n "$ip" ]]; then
     printf "LXC IP: %s\n" "$ip"
     printf "Open: http://%s:%s\n" "$ip" "$PORT"
   else
@@ -581,6 +660,7 @@ print_lxc_summary() {
 }
 
 install_host_mode() {
+  PROXMOX_HOST_IP="$(resolve_proxmox_host_ip)"
   install_base_packages
   install_nodejs
   install_pm2
@@ -595,6 +675,7 @@ install_host_mode() {
 install_lxc_mode() {
   is_proxmox_host || fail "LXC mode must be run on a Proxmox host"
   [[ -n "$REPO_URL" ]] || fail "LXC mode requires --repo so the new container can fetch setup.sh from GitHub"
+  PROXMOX_HOST_IP="$(resolve_proxmox_host_ip)"
 
   local template_storage storage template id raw_setup_url ip
   template_storage="$(pick_lxc_template_storage)"
