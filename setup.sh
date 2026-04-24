@@ -35,6 +35,9 @@ LXC_DISK="${LXC_DISK:-$DEFAULT_LXC_DISK}"
 LXC_BRIDGE="${LXC_BRIDGE:-$DEFAULT_LXC_BRIDGE}"
 LXC_IP="${LXC_IP:-dhcp}"
 LXC_GATEWAY="${LXC_GATEWAY:-}"
+HOST_ARG_SET=0
+LXC_IP_ARG_SET=0
+LXC_GATEWAY_ARG_SET=0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_REPO_SOURCE=0
@@ -54,6 +57,69 @@ fail() {
 
 has_command() {
   command -v "$1" >/dev/null 2>&1
+}
+
+is_valid_ipv4() {
+  [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
+
+is_valid_ipv4_cidr() {
+  [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]]
+}
+
+can_prompt() {
+  [[ -r /dev/tty && -w /dev/tty ]]
+}
+
+prompt_with_default() {
+  local prompt="$1"
+  local default_value="${2:-}"
+  local value=""
+
+  if ! can_prompt; then
+    printf "%s\n" "$default_value"
+    return
+  fi
+
+  if [[ -n "$default_value" ]]; then
+    printf "[setup] %s [%s]: " "$prompt" "$default_value" > /dev/tty
+  else
+    printf "[setup] %s: " "$prompt" > /dev/tty
+  fi
+
+  IFS= read -r value < /dev/tty || value=""
+  if [[ -z "$value" ]]; then
+    value="$default_value"
+  fi
+
+  printf "%s\n" "$value"
+}
+
+prompt_yes_no() {
+  local prompt="$1"
+  local default_answer="${2:-y}"
+  local default_label="Y/n"
+  local reply=""
+
+  if [[ "${default_answer,,}" == "n" ]]; then
+    default_label="y/N"
+  fi
+
+  if ! can_prompt; then
+    [[ "${default_answer,,}" == "y" ]]
+    return
+  fi
+
+  while true; do
+    printf "[setup] %s [%s]: " "$prompt" "$default_label" > /dev/tty
+    IFS= read -r reply < /dev/tty || reply=""
+    reply="${reply:-$default_answer}"
+    case "${reply,,}" in
+      y|yes) return 0 ;;
+      n|no) return 1 ;;
+    esac
+    printf "[setup] Please answer yes or no.\n" > /dev/tty
+  done
 }
 
 usage() {
@@ -94,6 +160,9 @@ Examples:
   sudo bash setup.sh --host 192.168.8.12
   sudo bash setup.sh --mode host --repo https://github.com/Gam3ReaTr0/Proxmox-helper-script-locally.git --host 192.168.8.12
   sudo bash setup.sh --mode lxc --lxc-id 301 --lxc-ip 192.168.8.50/24 --lxc-gateway 192.168.8.1
+
+Notes:
+  In interactive LXC mode, setup.sh can prompt for the Proxmox host IP and the new LXC IP settings.
 EOF
 }
 
@@ -130,6 +199,7 @@ while [[ $# -gt 0 ]]; do
     --host)
       [[ $# -ge 2 ]] || fail "Missing value for --host"
       PROXMOX_HOST_IP="$2"
+      HOST_ARG_SET=1
       shift 2
       ;;
     --port)
@@ -190,11 +260,13 @@ while [[ $# -gt 0 ]]; do
     --lxc-ip)
       [[ $# -ge 2 ]] || fail "Missing value for --lxc-ip"
       LXC_IP="$2"
+      LXC_IP_ARG_SET=1
       shift 2
       ;;
     --lxc-gateway)
       [[ $# -ge 2 ]] || fail "Missing value for --lxc-gateway"
       LXC_GATEWAY="$2"
+      LXC_GATEWAY_ARG_SET=1
       shift 2
       ;;
     -h|--help)
@@ -214,8 +286,12 @@ done
 [[ "$LXC_CORES" =~ ^[0-9]+$ ]] || fail "LXC cores must be numeric"
 [[ "$LXC_DISK" =~ ^[0-9]+$ ]] || fail "LXC disk size must be numeric"
 [[ -z "$LXC_ID" || "$LXC_ID" =~ ^[0-9]+$ ]] || fail "LXC ID must be numeric"
-[[ "$LXC_IP" == "dhcp" || "$LXC_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]] || fail "LXC IP must be 'dhcp' or an IP/CIDR like 192.168.8.50/24"
-[[ -z "$LXC_GATEWAY" || "$LXC_GATEWAY" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "LXC gateway must be an IPv4 address"
+if [[ "$LXC_IP" != "dhcp" ]] && ! is_valid_ipv4_cidr "$LXC_IP"; then
+  fail "LXC IP must be 'dhcp' or an IP/CIDR like 192.168.8.50/24"
+fi
+if [[ -n "$LXC_GATEWAY" ]] && ! is_valid_ipv4 "$LXC_GATEWAY"; then
+  fail "LXC gateway must be an IPv4 address"
+fi
 
 if [[ $EUID -ne 0 ]]; then
   fail "Run this script with sudo or as root"
@@ -313,6 +389,79 @@ resolve_proxmox_host_ip() {
   fi
 
   printf "%s\n" "$DEFAULT_PROXMOX_HOST_IP"
+}
+
+validate_lxc_network_settings() {
+  if [[ "$LXC_IP" != "dhcp" ]] && ! is_valid_ipv4_cidr "$LXC_IP"; then
+    fail "LXC IP must be 'dhcp' or an IP/CIDR like 192.168.8.50/24"
+  fi
+
+  if [[ "$LXC_IP" != "dhcp" && -z "$LXC_GATEWAY" ]]; then
+    fail "Static LXC networking needs a gateway so the installer can reach the internet inside the new container"
+  fi
+
+  if [[ -n "$LXC_GATEWAY" ]] && ! is_valid_ipv4 "$LXC_GATEWAY"; then
+    fail "LXC gateway must be an IPv4 address"
+  fi
+}
+
+prompt_lxc_network_settings() {
+  local static_ip=""
+  local static_gateway=""
+
+  if (( LXC_IP_ARG_SET )); then
+    validate_lxc_network_settings
+    return
+  fi
+
+  if ! can_prompt; then
+    validate_lxc_network_settings
+    return
+  fi
+
+  printf "\n[setup] LXC network setup\n" > /dev/tty
+  if prompt_yes_no "Use a static IP for the new LXC?" "n"; then
+    while true; do
+      static_ip="$(prompt_with_default "LXC IP/CIDR" "192.168.8.50/24")"
+      if is_valid_ipv4_cidr "$static_ip"; then
+        break
+      fi
+      printf "[setup] Enter the IP like 192.168.8.50/24.\n" > /dev/tty
+    done
+
+    while true; do
+      static_gateway="$(prompt_with_default "LXC gateway" "192.168.8.1")"
+      if is_valid_ipv4 "$static_gateway"; then
+        break
+      fi
+      printf "[setup] Enter the gateway like 192.168.8.1.\n" > /dev/tty
+    done
+
+    LXC_IP="$static_ip"
+    LXC_GATEWAY="$static_gateway"
+  else
+    LXC_IP="dhcp"
+    LXC_GATEWAY=""
+  fi
+
+  validate_lxc_network_settings
+}
+
+configure_lxc_install_interactive() {
+  local detected_host_ip=""
+
+  if ! can_prompt; then
+    return
+  fi
+
+  detected_host_ip="$(resolve_proxmox_host_ip)"
+  if (( ! HOST_ARG_SET )); then
+    PROXMOX_HOST_IP="$(prompt_with_default "Proxmox host IP or hostname for the app" "$detected_host_ip")"
+  else
+    PROXMOX_HOST_IP="$detected_host_ip"
+  fi
+
+  prompt_lxc_network_settings
 }
 
 sync_repo() {
@@ -675,7 +824,9 @@ install_host_mode() {
 install_lxc_mode() {
   is_proxmox_host || fail "LXC mode must be run on a Proxmox host"
   [[ -n "$REPO_URL" ]] || fail "LXC mode requires --repo so the new container can fetch setup.sh from GitHub"
-  PROXMOX_HOST_IP="$(resolve_proxmox_host_ip)"
+  configure_lxc_install_interactive
+  PROXMOX_HOST_IP="${PROXMOX_HOST_IP:-$(resolve_proxmox_host_ip)}"
+  validate_lxc_network_settings
 
   local template_storage storage template id raw_setup_url ip
   template_storage="$(pick_lxc_template_storage)"
