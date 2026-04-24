@@ -2,21 +2,46 @@
 set -euo pipefail
 
 APP_NAME="proxmox-helper-local"
-SERVICE_NAME="$APP_NAME"
 DEFAULT_BRANCH="main"
 DEFAULT_INSTALL_DIR="/opt/$APP_NAME"
-ENV_FILE="/etc/default/$APP_NAME"
-SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME.service"
+DEFAULT_PORT=3000
+DEFAULT_PROXMOX_HOST_IP="192.168.8.12"
+DEFAULT_NODE_MAJOR=20
 
+DEFAULT_LXC_NAME="$APP_NAME"
+DEFAULT_LXC_MEMORY=2048
+DEFAULT_LXC_CORES=2
+DEFAULT_LXC_DISK=8
+DEFAULT_LXC_BRIDGE="vmbr0"
+DEFAULT_LXC_TEMPLATE_STORAGE="local"
+
+MODE="${MODE:-auto}"
 REPO_URL="${REPO_URL:-}"
 BRANCH="${BRANCH:-$DEFAULT_BRANCH}"
 INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
-PORT="${PORT:-3000}"
-PROXMOX_HOST_IP="${PROXMOX_HOST_IP:-192.168.8.12}"
-SETUP_SERVICE=1
+PORT="${PORT:-$DEFAULT_PORT}"
+PROXMOX_HOST_IP="${PROXMOX_HOST_IP:-$DEFAULT_PROXMOX_HOST_IP}"
+NODE_MAJOR="${NODE_MAJOR:-$DEFAULT_NODE_MAJOR}"
+
+LXC_ID="${LXC_ID:-}"
+LXC_NAME="${LXC_NAME:-$DEFAULT_LXC_NAME}"
+LXC_STORAGE="${LXC_STORAGE:-}"
+LXC_TEMPLATE_STORAGE="${LXC_TEMPLATE_STORAGE:-$DEFAULT_LXC_TEMPLATE_STORAGE}"
+LXC_TEMPLATE="${LXC_TEMPLATE:-}"
+LXC_MEMORY="${LXC_MEMORY:-$DEFAULT_LXC_MEMORY}"
+LXC_CORES="${LXC_CORES:-$DEFAULT_LXC_CORES}"
+LXC_DISK="${LXC_DISK:-$DEFAULT_LXC_DISK}"
+LXC_BRIDGE="${LXC_BRIDGE:-$DEFAULT_LXC_BRIDGE}"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCAL_REPO_SOURCE=0
 
 log() {
   printf "\n[setup] %s\n" "$*"
+}
+
+warn() {
+  printf "\n[setup] Warning: %s\n" "$*" >&2
 }
 
 fail() {
@@ -24,41 +49,77 @@ fail() {
   exit 1
 }
 
+has_command() {
+  command -v "$1" >/dev/null 2>&1
+}
+
 usage() {
   cat <<'EOF'
 Usage:
   sudo bash setup.sh [options]
 
+Modes:
+  auto              On a Proxmox host, create a dedicated Ubuntu LXC and install there.
+                    On a normal Ubuntu/Debian box, install directly on the current system.
+  host              Install directly on the current Ubuntu/Debian system using Node.js + PM2.
+  lxc               Create a dedicated Ubuntu LXC on a Proxmox host, then install the app inside it.
+
 Options:
-  --repo <git-url>    Git repo to clone or update
-  --dir <path>        Install directory (default: /opt/proxmox-helper-local)
-  --branch <name>     Git branch (default: main)
-  --host <address>    Default Proxmox host IP/hostname (default: 192.168.8.12)
-  --port <port>       App port (default: 3000)
-  --no-service        Install only, do not create/start systemd service
-  -h, --help          Show this help
+  --mode <auto|host|lxc>         Force an install mode
+  --install-on-host              Shortcut for --mode host
+  --lxc                          Shortcut for --mode lxc
+  --repo <git-url>               Git repo to clone or update
+  --branch <name>                Git branch (default: main)
+  --dir <path>                   Install directory inside Ubuntu/LXC (default: /opt/proxmox-helper-local)
+  --host <address>               Default Proxmox host IP/hostname for first boot
+  --port <port>                  App port (default: 3000)
+  --node-major <version>         Node.js major version to install (default: 20)
+  --lxc-id <id>                  LXC ID to create
+  --lxc-name <name>              LXC hostname/name
+  --lxc-storage <storage>        Rootfs storage for the LXC (auto when omitted)
+  --lxc-template-storage <name>  Template storage for vzdump templates (default: local)
+  --lxc-template <template>      Explicit Ubuntu template filename
+  --lxc-memory <mb>              LXC memory in MB (default: 2048)
+  --lxc-cores <count>            LXC CPU cores (default: 2)
+  --lxc-disk <gb>                LXC root disk size in GB (default: 8)
+  --bridge <name>                Proxmox bridge for the LXC (default: vmbr0)
+  -h, --help                     Show this help
 
 Examples:
-  sudo bash setup.sh --host 192.168.8.12
-  sudo bash setup.sh --repo https://github.com/you/repo.git --host 192.168.8.12
+  sudo bash setup.sh --repo https://github.com/Gam3ReaTr0/your-repo.git --host 192.168.8.12
+  sudo bash setup.sh --mode host --repo https://github.com/Gam3ReaTr0/your-repo.git --host 192.168.8.12
+  sudo bash setup.sh --mode lxc --repo https://github.com/Gam3ReaTr0/your-repo.git --host 192.168.8.12 --lxc-id 301
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --mode)
+      [[ $# -ge 2 ]] || fail "Missing value for --mode"
+      MODE="$2"
+      shift 2
+      ;;
+    --install-on-host)
+      MODE="host"
+      shift
+      ;;
+    --lxc)
+      MODE="lxc"
+      shift
+      ;;
     --repo)
       [[ $# -ge 2 ]] || fail "Missing value for --repo"
       REPO_URL="$2"
       shift 2
       ;;
-    --dir)
-      [[ $# -ge 2 ]] || fail "Missing value for --dir"
-      INSTALL_DIR="$2"
-      shift 2
-      ;;
     --branch)
       [[ $# -ge 2 ]] || fail "Missing value for --branch"
       BRANCH="$2"
+      shift 2
+      ;;
+    --dir)
+      [[ $# -ge 2 ]] || fail "Missing value for --dir"
+      INSTALL_DIR="$2"
       shift 2
       ;;
     --host)
@@ -71,9 +132,55 @@ while [[ $# -gt 0 ]]; do
       PORT="$2"
       shift 2
       ;;
-    --no-service)
-      SETUP_SERVICE=0
-      shift
+    --node-major)
+      [[ $# -ge 2 ]] || fail "Missing value for --node-major"
+      NODE_MAJOR="$2"
+      shift 2
+      ;;
+    --lxc-id)
+      [[ $# -ge 2 ]] || fail "Missing value for --lxc-id"
+      LXC_ID="$2"
+      shift 2
+      ;;
+    --lxc-name)
+      [[ $# -ge 2 ]] || fail "Missing value for --lxc-name"
+      LXC_NAME="$2"
+      shift 2
+      ;;
+    --lxc-storage)
+      [[ $# -ge 2 ]] || fail "Missing value for --lxc-storage"
+      LXC_STORAGE="$2"
+      shift 2
+      ;;
+    --lxc-template-storage)
+      [[ $# -ge 2 ]] || fail "Missing value for --lxc-template-storage"
+      LXC_TEMPLATE_STORAGE="$2"
+      shift 2
+      ;;
+    --lxc-template)
+      [[ $# -ge 2 ]] || fail "Missing value for --lxc-template"
+      LXC_TEMPLATE="$2"
+      shift 2
+      ;;
+    --lxc-memory)
+      [[ $# -ge 2 ]] || fail "Missing value for --lxc-memory"
+      LXC_MEMORY="$2"
+      shift 2
+      ;;
+    --lxc-cores)
+      [[ $# -ge 2 ]] || fail "Missing value for --lxc-cores"
+      LXC_CORES="$2"
+      shift 2
+      ;;
+    --lxc-disk)
+      [[ $# -ge 2 ]] || fail "Missing value for --lxc-disk"
+      LXC_DISK="$2"
+      shift 2
+      ;;
+    --bridge)
+      [[ $# -ge 2 ]] || fail "Missing value for --bridge"
+      LXC_BRIDGE="$2"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -87,26 +194,29 @@ done
 
 [[ "$PORT" =~ ^[0-9]+$ ]] || fail "Port must be numeric"
 (( PORT >= 1 && PORT <= 65535 )) || fail "Port must be between 1 and 65535"
+[[ "$NODE_MAJOR" =~ ^[0-9]+$ ]] || fail "Node major version must be numeric"
+[[ "$LXC_MEMORY" =~ ^[0-9]+$ ]] || fail "LXC memory must be numeric"
+[[ "$LXC_CORES" =~ ^[0-9]+$ ]] || fail "LXC cores must be numeric"
+[[ "$LXC_DISK" =~ ^[0-9]+$ ]] || fail "LXC disk size must be numeric"
+[[ -z "$LXC_ID" || "$LXC_ID" =~ ^[0-9]+$ ]] || fail "LXC ID must be numeric"
 
 if [[ $EUID -ne 0 ]]; then
   fail "Run this script with sudo or as root"
 fi
-
-if ! command -v apt-get >/dev/null 2>&1; then
-  fail "This setup script currently supports Debian/Ubuntu systems with apt-get"
-fi
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOCAL_REPO_SOURCE=0
 
 if [[ -z "$REPO_URL" && -f "$SCRIPT_DIR/server.js" && -f "$SCRIPT_DIR/public/index.html" ]]; then
   LOCAL_REPO_SOURCE=1
   INSTALL_DIR="$SCRIPT_DIR"
 fi
 
-install_packages() {
-  log "Installing system packages"
+ensure_apt() {
+  has_command apt-get || fail "This setup script supports Debian/Ubuntu systems with apt-get"
   export DEBIAN_FRONTEND=noninteractive
+}
+
+install_base_packages() {
+  ensure_apt
+  log "Installing base packages"
   apt-get update
   apt-get install -y \
     ca-certificates \
@@ -114,8 +224,45 @@ install_packages() {
     git \
     build-essential \
     python3 \
-    nodejs \
-    npm
+    gnupg
+}
+
+install_nodejs() {
+  local current_major=""
+
+  if has_command node; then
+    current_major="$(node -p "process.versions.node.split('.')[0]" 2>/dev/null || true)"
+  fi
+
+  if [[ "$current_major" =~ ^[0-9]+$ ]] && (( current_major >= NODE_MAJOR )); then
+    log "Node.js $current_major is already installed"
+    return
+  fi
+
+  log "Installing Node.js $NODE_MAJOR.x"
+  install -d -m 0755 /etc/apt/keyrings
+  curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | \
+    gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+
+  local distro_codename=""
+  if [[ -r /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    distro_codename="${VERSION_CODENAME:-}"
+  fi
+  [[ -n "$distro_codename" ]] || fail "Could not determine the Debian/Ubuntu codename for NodeSource"
+
+  cat > /etc/apt/sources.list.d/nodesource.list <<EOF
+deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main
+EOF
+
+  apt-get update
+  apt-get install -y nodejs
+}
+
+install_pm2() {
+  log "Installing PM2"
+  npm install -g pm2
 }
 
 sync_repo() {
@@ -144,71 +291,342 @@ sync_repo() {
 }
 
 install_node_modules() {
-  log "Installing Node dependencies"
+  log "Installing app dependencies"
   cd "$INSTALL_DIR"
   npm install --omit=dev --no-audit --no-fund --unsafe-perm
 }
 
-write_env_file() {
-  log "Writing environment file to $ENV_FILE"
-  cat > "$ENV_FILE" <<EOF
+write_runtime_env_file() {
+  log "Writing runtime environment file"
+  cat > "$INSTALL_DIR/.runtime.env" <<EOF
+NODE_ENV=production
 PORT=$PORT
 PROXMOX_HOST_IP=$PROXMOX_HOST_IP
-NODE_ENV=production
 EOF
 }
 
-write_service_file() {
-  log "Writing systemd service to $SERVICE_FILE"
-  cat > "$SERVICE_FILE" <<EOF
-[Unit]
-Description=Proxmox Helper Local
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=$INSTALL_DIR
-EnvironmentFile=-$ENV_FILE
-ExecStart=/usr/bin/env npm start
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
+write_pm2_ecosystem() {
+  log "Writing PM2 ecosystem file"
+  cat > "$INSTALL_DIR/ecosystem.config.cjs" <<EOF
+module.exports = {
+  apps: [
+    {
+      name: '${APP_NAME}',
+      cwd: '${INSTALL_DIR}',
+      script: 'server.js',
+      env: {
+        NODE_ENV: 'production',
+        PORT: '${PORT}',
+        PROXMOX_HOST_IP: '${PROXMOX_HOST_IP}'
+      }
+    }
+  ]
+};
 EOF
 }
 
-start_service() {
-  command -v systemctl >/dev/null 2>&1 || fail "systemctl is not available on this system"
-  log "Enabling and starting $SERVICE_NAME"
-  systemctl daemon-reload
-  systemctl enable --now "$SERVICE_NAME"
+configure_pm2() {
+  log "Starting the app with PM2"
+  cd "$INSTALL_DIR"
+
+  pm2 delete "$APP_NAME" >/dev/null 2>&1 || true
+  pm2 startOrRestart ecosystem.config.cjs --only "$APP_NAME" --update-env
+  pm2 save
+
+  if has_command systemctl; then
+    log "Configuring PM2 startup with systemd"
+    env PATH="$PATH:/usr/bin:/usr/local/bin" pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || \
+      warn "PM2 startup could not be configured automatically; the app still runs in PM2"
+    systemctl enable --now pm2-root >/dev/null 2>&1 || \
+      warn "pm2-root could not be enabled automatically; run 'systemctl enable --now pm2-root' if needed"
+    pm2 save
+  else
+    warn "systemctl is not available, so PM2 startup on boot was skipped"
+  fi
 }
 
-print_summary() {
-  log "Setup complete"
-  printf "\nApp directory: %s\n" "$INSTALL_DIR"
+print_host_summary() {
+  log "Install complete"
+  printf "\nMode: host\n"
+  printf "Directory: %s\n" "$INSTALL_DIR"
   printf "Port: %s\n" "$PORT"
   printf "Default Proxmox host: %s\n" "$PROXMOX_HOST_IP"
-
-  if (( SETUP_SERVICE )); then
-    printf "Service: %s\n" "$SERVICE_NAME"
-    printf "Status command: systemctl status %s\n" "$SERVICE_NAME"
-  else
-    printf "Start command: cd %s && PORT=%s PROXMOX_HOST_IP=%s npm start\n" "$INSTALL_DIR" "$PORT" "$PROXMOX_HOST_IP"
-  fi
-
+  printf "PM2 app: %s\n" "$APP_NAME"
   printf "Open: http://YOUR_SERVER_IP:%s\n" "$PORT"
+  printf "\nUseful commands:\n"
+  printf "  pm2 status\n"
+  printf "  pm2 logs %s\n" "$APP_NAME"
+  printf "  pm2 restart %s\n" "$APP_NAME"
 }
 
-install_packages
-sync_repo
-install_node_modules
+is_proxmox_host() {
+  has_command pct && has_command pveam
+}
 
-if (( SETUP_SERVICE )); then
-  write_env_file
-  write_service_file
-  start_service
-fi
+choose_mode() {
+  case "$MODE" in
+    auto)
+      if is_proxmox_host; then
+        printf "lxc\n"
+      else
+        printf "host\n"
+      fi
+      ;;
+    host|lxc)
+      printf "%s\n" "$MODE"
+      ;;
+    *)
+      fail "Unsupported mode: $MODE"
+      ;;
+  esac
+}
 
-print_summary
+github_raw_setup_url() {
+  local repo="$1"
+  local branch="$2"
+  local repo_path=""
+
+  case "$repo" in
+    https://github.com/*)
+      repo_path="${repo#https://github.com/}"
+      ;;
+    http://github.com/*)
+      repo_path="${repo#http://github.com/}"
+      ;;
+    git@github.com:*)
+      repo_path="${repo#git@github.com:}"
+      ;;
+    *)
+      fail "LXC mode currently requires a GitHub repo URL so the container can download setup.sh"
+      ;;
+  esac
+
+  repo_path="${repo_path%.git}"
+  [[ -n "$repo_path" ]] || fail "Could not parse the GitHub repository path from: $repo"
+  printf "https://raw.githubusercontent.com/%s/%s/setup.sh\n" "$repo_path" "$branch"
+}
+
+pick_lxc_template_storage() {
+  if [[ -n "$LXC_TEMPLATE_STORAGE" ]]; then
+    printf "%s\n" "$LXC_TEMPLATE_STORAGE"
+    return
+  fi
+
+  if pvesm status 2>/dev/null | awk 'NR>1 && $1=="local" {found=1} END{exit found ? 0 : 1}'; then
+    printf "local\n"
+    return
+  fi
+
+  local first_dir
+  first_dir="$(pvesm status 2>/dev/null | awk 'NR>1 && $2=="dir" {print $1; exit}')"
+  [[ -n "$first_dir" ]] || fail "Could not find a directory storage for LXC templates"
+  printf "%s\n" "$first_dir"
+}
+
+pick_lxc_storage() {
+  if [[ -n "$LXC_STORAGE" ]]; then
+    printf "%s\n" "$LXC_STORAGE"
+    return
+  fi
+
+  local candidate
+  for candidate in local-lvm local-zfs local; do
+    if pvesm status 2>/dev/null | awk -v target="$candidate" 'NR>1 && $1==target {found=1} END{exit found ? 0 : 1}'; then
+      printf "%s\n" "$candidate"
+      return
+    fi
+  done
+
+  local first_storage
+  first_storage="$(pvesm status 2>/dev/null | awk 'NR>1 {print $1; exit}')"
+  [[ -n "$first_storage" ]] || fail "Could not determine a storage for the LXC rootfs"
+  printf "%s\n" "$first_storage"
+}
+
+pick_lxc_template() {
+  if [[ -n "$LXC_TEMPLATE" ]]; then
+    printf "%s\n" "$LXC_TEMPLATE"
+    return
+  fi
+
+  pveam update >/dev/null
+
+  local pattern template
+  for pattern in 'ubuntu-24.04-standard.*amd64\.tar\.(gz|zst)$' 'ubuntu-22.04-standard.*amd64\.tar\.(gz|zst)$'; do
+    template="$(pveam available --section system 2>/dev/null | awk -v pattern="$pattern" '{for (i = 1; i <= NF; i++) if ($i ~ pattern) {print $i; exit}}')"
+    if [[ -n "$template" ]]; then
+      printf "%s\n" "$template"
+      return
+    fi
+  done
+
+  fail "Could not find an Ubuntu LXC template in pveam"
+}
+
+ensure_lxc_template_downloaded() {
+  local storage="$1"
+  local template="$2"
+
+  if pveam list "$storage" 2>/dev/null | grep -Fq "$template"; then
+    log "Using cached template $template from $storage"
+    return
+  fi
+
+  log "Downloading template $template to $storage"
+  pveam download "$storage" "$template"
+}
+
+next_lxc_id() {
+  if [[ -n "$LXC_ID" ]]; then
+    printf "%s\n" "$LXC_ID"
+    return
+  fi
+
+  if has_command pvesh; then
+    pvesh get /cluster/nextid
+    return
+  fi
+
+  fail "Could not determine the next available LXC ID"
+}
+
+wait_for_lxc() {
+  local id="$1"
+  local tries=0
+
+  while (( tries < 60 )); do
+    if pct exec "$id" -- bash -lc "echo ready" >/dev/null 2>&1; then
+      return
+    fi
+    tries=$((tries + 1))
+    sleep 2
+  done
+
+  fail "LXC $id did not become ready in time"
+}
+
+create_lxc() {
+  local id="$1"
+  local template_storage="$2"
+  local template="$3"
+  local storage="$4"
+
+  if pct status "$id" >/dev/null 2>&1; then
+    fail "LXC $id already exists; choose another --lxc-id"
+  fi
+
+  log "Creating Ubuntu LXC $id on storage $storage"
+  pct create "$id" "${template_storage}:vztmpl/${template}" \
+    --hostname "$LXC_NAME" \
+    --ostype ubuntu \
+    --unprivileged 1 \
+    --cores "$LXC_CORES" \
+    --memory "$LXC_MEMORY" \
+    --swap 512 \
+    --rootfs "${storage}:${LXC_DISK}" \
+    --net0 "name=eth0,bridge=${LXC_BRIDGE},ip=dhcp" \
+    --features "nesting=1,keyctl=1" \
+    --onboot 1 \
+    --tags "$APP_NAME"
+
+  pct start "$id"
+}
+
+bootstrap_lxc_install() {
+  local id="$1"
+  local raw_setup_url="$2"
+
+  log "Installing the app inside LXC $id"
+  pct exec "$id" -- bash -lc "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y ca-certificates curl"
+
+  local remote_cmd
+  printf -v remote_cmd \
+    "curl -fsSL %q | bash -s -- --mode host --repo %q --branch %q --dir %q --host %q --port %q --node-major %q" \
+    "$raw_setup_url" \
+    "$REPO_URL" \
+    "$BRANCH" \
+    "$INSTALL_DIR" \
+    "$PROXMOX_HOST_IP" \
+    "$PORT" \
+    "$NODE_MAJOR"
+
+  pct exec "$id" -- bash -lc "$remote_cmd"
+}
+
+lxc_primary_ip() {
+  local id="$1"
+  pct exec "$id" -- bash -lc "hostname -I 2>/dev/null | awk '{print \$1}'" 2>/dev/null | tr -d '\r' || true
+}
+
+print_lxc_summary() {
+  local id="$1"
+  local ip="$2"
+
+  log "LXC install complete"
+  printf "\nMode: lxc\n"
+  printf "LXC ID: %s\n" "$id"
+  printf "LXC name: %s\n" "$LXC_NAME"
+  printf "Default Proxmox host inside app: %s\n" "$PROXMOX_HOST_IP"
+  if [[ -n "$ip" ]]; then
+    printf "LXC IP: %s\n" "$ip"
+    printf "Open: http://%s:%s\n" "$ip" "$PORT"
+  else
+    printf "LXC IP: not detected yet\n"
+  fi
+
+  printf "\nUseful commands:\n"
+  printf "  pct enter %s\n" "$id"
+  printf "  pct status %s\n" "$id"
+  printf "  pct stop %s && pct start %s\n" "$id" "$id"
+}
+
+install_host_mode() {
+  install_base_packages
+  install_nodejs
+  install_pm2
+  sync_repo
+  install_node_modules
+  write_runtime_env_file
+  write_pm2_ecosystem
+  configure_pm2
+  print_host_summary
+}
+
+install_lxc_mode() {
+  is_proxmox_host || fail "LXC mode must be run on a Proxmox host"
+  [[ -n "$REPO_URL" ]] || fail "LXC mode requires --repo so the new container can fetch setup.sh from GitHub"
+
+  local template_storage storage template id raw_setup_url ip
+  template_storage="$(pick_lxc_template_storage)"
+  storage="$(pick_lxc_storage)"
+  template="$(pick_lxc_template)"
+  id="$(next_lxc_id)"
+  raw_setup_url="$(github_raw_setup_url "$REPO_URL" "$BRANCH")"
+
+  ensure_lxc_template_downloaded "$template_storage" "$template"
+  create_lxc "$id" "$template_storage" "$template" "$storage"
+  wait_for_lxc "$id"
+  bootstrap_lxc_install "$id" "$raw_setup_url"
+  ip="$(lxc_primary_ip "$id")"
+  print_lxc_summary "$id" "$ip"
+}
+
+main() {
+  local chosen_mode
+  chosen_mode="$(choose_mode)"
+  log "Selected install mode: $chosen_mode"
+
+  case "$chosen_mode" in
+    host)
+      install_host_mode
+      ;;
+    lxc)
+      install_lxc_mode
+      ;;
+    *)
+      fail "Unsupported resolved mode: $chosen_mode"
+      ;;
+  esac
+}
+
+main
