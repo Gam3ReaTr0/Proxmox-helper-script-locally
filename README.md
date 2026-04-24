@@ -33,7 +33,7 @@ If you run the installer on a Proxmox host, it will:
 1. detect that it is running on Proxmox
 2. auto-detect the Proxmox host IP
 3. ask which Proxmox host IP/hostname the app should use by default
-4. ask whether the new LXC should use `DHCP` or a `static IP`
+4. open a small terminal setup wizard for the LXC network settings
 5. if you choose static mode, ask for:
    - `IP/CIDR`
    - `gateway`
@@ -68,7 +68,7 @@ After the app opens:
 
 ## If You Want To Set The LXC IP Yourself In The Command
 
-The installer can ask you interactively, but you can also pass the network settings directly.
+The installer now uses a small terminal wizard with `whiptail` when possible, but you can also pass the network settings directly.
 
 Example:
 
@@ -144,7 +144,7 @@ The installer will update the repo, install dependencies if needed, and restart 
 
 - default app port: `3000`
 - on Proxmox, the installer prefers creating a dedicated Ubuntu LXC
-- if you do not pass LXC network flags, the installer can ask you for them
+- if you run it in a normal terminal, the installer can show a small terminal wizard for the host and LXC network settings
 - if you do not choose a static IP, the LXC uses DHCP
 
 ## Advanced Options

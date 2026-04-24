@@ -37,13 +37,13 @@ LXC_IP="${LXC_IP:-dhcp}"
 LXC_GATEWAY="${LXC_GATEWAY:-}"
 HOST_ARG_SET=0
 LXC_IP_ARG_SET=0
-LXC_GATEWAY_ARG_SET=0
+SETUP_UI_TITLE="Proxmox Helper Local Setup"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_REPO_SOURCE=0
 
 log() {
-  printf "\n[setup] %s\n" "$*"
+  printf "\n[setup] %s\n" "$*" >&2
 }
 
 warn() {
@@ -71,10 +71,39 @@ can_prompt() {
   [[ -r /dev/tty && -w /dev/tty ]]
 }
 
+use_whiptail_ui() {
+  can_prompt && has_command whiptail
+}
+
+ensure_prompt_ui() {
+  if ! can_prompt || has_command whiptail || ! has_command apt-get; then
+    return
+  fi
+
+  log "Installing whiptail for the setup wizard"
+  export DEBIAN_FRONTEND=noninteractive
+  if ! apt-get update >/dev/null 2>&1; then
+    warn "Could not refresh apt metadata for whiptail; falling back to plain prompts"
+    return
+  fi
+
+  if ! apt-get install -y whiptail >/dev/null 2>&1; then
+    warn "Could not install whiptail; falling back to plain prompts"
+  fi
+}
+
 prompt_with_default() {
   local prompt="$1"
   local default_value="${2:-}"
   local value=""
+
+  if use_whiptail_ui; then
+    if ! value="$(whiptail --title "$SETUP_UI_TITLE" --inputbox "$prompt" 11 78 "$default_value" 3>&1 1>&2 2>&3)"; then
+      fail "Setup was canceled"
+    fi
+    printf "%s\n" "$value"
+    return
+  fi
 
   if ! can_prompt; then
     printf "%s\n" "$default_value"
@@ -105,6 +134,24 @@ prompt_yes_no() {
     default_label="y/N"
   fi
 
+  if use_whiptail_ui; then
+    if [[ "${default_answer,,}" == "n" ]]; then
+      if whiptail --title "$SETUP_UI_TITLE" --defaultno --yesno "$prompt" 10 72; then
+        return 0
+      fi
+    else
+      if whiptail --title "$SETUP_UI_TITLE" --yesno "$prompt" 10 72; then
+        return 0
+      fi
+    fi
+
+    case $? in
+      1) return 1 ;;
+      255) fail "Setup was canceled" ;;
+      *) return 1 ;;
+    esac
+  fi
+
   if ! can_prompt; then
     [[ "${default_answer,,}" == "y" ]]
     return
@@ -120,6 +167,22 @@ prompt_yes_no() {
     esac
     printf "[setup] Please answer yes or no.\n" > /dev/tty
   done
+}
+
+prompt_menu() {
+  local prompt="$1"
+  shift
+
+  if use_whiptail_ui; then
+    local value=""
+    if ! value="$(whiptail --title "$SETUP_UI_TITLE" --menu "$prompt" 15 78 4 "$@" 3>&1 1>&2 2>&3)"; then
+      fail "Setup was canceled"
+    fi
+    printf "%s\n" "$value"
+    return
+  fi
+
+  printf "%s\n" "$1"
 }
 
 usage() {
@@ -162,7 +225,8 @@ Examples:
   sudo bash setup.sh --mode lxc --lxc-id 301 --lxc-ip 192.168.8.50/24 --lxc-gateway 192.168.8.1
 
 Notes:
-  In interactive LXC mode, setup.sh can prompt for the Proxmox host IP and the new LXC IP settings.
+  In interactive LXC mode, setup.sh can open a small whiptail-based setup wizard for the
+  Proxmox host IP and the new LXC IP settings.
 EOF
 }
 
@@ -266,7 +330,6 @@ while [[ $# -gt 0 ]]; do
     --lxc-gateway)
       [[ $# -ge 2 ]] || fail "Missing value for --lxc-gateway"
       LXC_GATEWAY="$2"
-      LXC_GATEWAY_ARG_SET=1
       shift 2
       ;;
     -h|--help)
@@ -406,6 +469,7 @@ validate_lxc_network_settings() {
 }
 
 prompt_lxc_network_settings() {
+  local network_mode=""
   local static_ip=""
   local static_gateway=""
 
@@ -419,8 +483,18 @@ prompt_lxc_network_settings() {
     return
   fi
 
-  printf "\n[setup] LXC network setup\n" > /dev/tty
-  if prompt_yes_no "Use a static IP for the new LXC?" "n"; then
+  if use_whiptail_ui; then
+    network_mode="$(prompt_menu \
+      "Choose how the new LXC should get its network settings" \
+      "dhcp" "Use DHCP and get the address automatically" \
+      "static" "Set a fixed IP address and gateway now")"
+  elif prompt_yes_no "Use a static IP for the new LXC?" "n"; then
+    network_mode="static"
+  else
+    network_mode="dhcp"
+  fi
+
+  if [[ "$network_mode" == "static" ]]; then
     while true; do
       static_ip="$(prompt_with_default "LXC IP/CIDR" "192.168.8.50/24")"
       if is_valid_ipv4_cidr "$static_ip"; then
@@ -454,6 +528,7 @@ configure_lxc_install_interactive() {
     return
   fi
 
+  ensure_prompt_ui
   detected_host_ip="$(resolve_proxmox_host_ip)"
   if (( ! HOST_ARG_SET )); then
     PROXMOX_HOST_IP="$(prompt_with_default "Proxmox host IP or hostname for the app" "$detected_host_ip")"
