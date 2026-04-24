@@ -1,0 +1,3795 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Proxmox Helper Scripts</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        :root {
+            --bg: #0f1115;
+            --panel: #171a21;
+            --panel-2: #1f232d;
+            --card: #1b2029;
+            --card-hover: #222937;
+            --line: #313744;
+            --line-soft: rgba(255,255,255,0.08);
+            --text: #eef2f8;
+            --muted: #98a2b3;
+            --faint: #697386;
+            --accent: #ff8a3d;
+            --blue: #4cc9f0;
+            --green: #35c46b;
+            --red: #ff5c70;
+            --shadow: 0 18px 60px rgba(0,0,0,0.35);
+        }
+
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background:
+                linear-gradient(180deg, rgba(255,255,255,0.015), rgba(255,255,255,0)),
+                var(--bg);
+            color: var(--text);
+            font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            position: relative;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+            background-size: 32px 32px;
+            opacity: 0.12;
+            mask-image: linear-gradient(180deg, rgba(0,0,0,0.42), transparent 84%);
+        }
+
+        button, input { font: inherit; }
+        button { border: 0; }
+        #root { width: 100%; height: 100%; }
+        .app-shell { display: flex; width: 100%; height: 100%; position: relative; }
+        .app-shell svg {
+            width: 18px;
+            height: 18px;
+            stroke: currentColor;
+            stroke-width: 1.9;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .sidebar {
+            width: 315px;
+            flex: 0 0 315px;
+            display: flex;
+            flex-direction: column;
+            background: linear-gradient(180deg, #151a22, #11161d);
+            border-right: 1px solid var(--line-soft);
+            overflow: hidden;
+            padding: 18px 16px 22px;
+            box-shadow: inset -1px 0 0 rgba(255,255,255,0.02);
+            transition: width 0.22s ease, flex-basis 0.22s ease, padding 0.22s ease;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px;
+            border: 1px solid var(--line-soft);
+            border-radius: 8px;
+            background: linear-gradient(180deg, rgba(33,38,49,0.98), rgba(22,27,36,0.98));
+            margin-bottom: 12px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 10px 22px rgba(0,0,0,0.14);
+        }
+
+        .brand-main {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+            flex: 1;
+        }
+
+        .brand-copy {
+            min-width: 0;
+        }
+
+        .brand-mark,
+        .category-icon,
+        .script-fallback {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+        }
+
+        .brand-mark {
+            width: 44px;
+            height: 44px;
+            border-radius: 8px;
+            background: linear-gradient(180deg, rgba(255,138,61,0.16), rgba(255,138,61,0.08));
+            color: var(--accent);
+            border: 1px solid rgba(255,138,61,0.3);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+        }
+
+        .brand-title { font-size: 16px; font-weight: 850; line-height: 1.1; }
+        .brand-subtitle { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+        .sidebar-sections {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            padding-right: 2px;
+        }
+
+        .sidebar-toolbar {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 42px;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        .sidebar-bottom {
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px solid var(--line-soft);
+        }
+
+        .sidebar-settings-btn {
+            width: 100%;
+            height: 42px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 8px;
+            color: var(--text);
+            background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.025));
+            border: 1px solid var(--line-soft);
+            cursor: pointer;
+            font-weight: 850;
+            padding: 0 12px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.025);
+        }
+
+        .sidebar-settings-btn:hover {
+            border-color: rgba(76,201,240,0.24);
+            background: rgba(76,201,240,0.09);
+        }
+
+        .sidebar-view-btn {
+            width: 42px;
+            height: 42px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--muted);
+            background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.025));
+            border: 1px solid var(--line-soft);
+            cursor: pointer;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.025);
+            transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+        }
+
+        .sidebar-view-btn:hover {
+            color: var(--text);
+            border-color: rgba(255,138,61,0.24);
+            background: rgba(255,138,61,0.09);
+        }
+
+        .sidebar-toolbar .sidebar-view-btn {
+            width: 100%;
+        }
+
+        .sidebar-settings-label {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .sidebar-heading {
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            padding: 4px 8px 10px;
+        }
+
+        .sidebar-groups {
+            display: grid;
+            gap: 8px;
+        }
+
+        .sidebar-group {
+            border: 1px solid var(--line-soft);
+            background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+            transition: border-color 0.18s ease, background 0.18s ease;
+        }
+
+        .sidebar-group-toggle {
+            width: 100%;
+            min-height: 42px;
+            display: grid;
+            grid-template-columns: 28px 1fr auto 18px;
+            align-items: center;
+            gap: 9px;
+            color: var(--text);
+            background: rgba(255,255,255,0.025);
+            border-bottom: 1px solid transparent;
+            cursor: pointer;
+            padding: 9px 10px;
+            text-align: left;
+            transition: background 0.18s ease, border-color 0.18s ease;
+        }
+
+        .sidebar-group-toggle:hover {
+            background: rgba(255,255,255,0.045);
+        }
+
+        .sidebar-group.open .sidebar-group-toggle {
+            border-bottom-color: var(--line-soft);
+        }
+
+        .group-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--blue);
+            background: rgba(76,201,240,0.09);
+            border: 1px solid rgba(76,201,240,0.14);
+        }
+
+        .group-name {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 13px;
+            font-weight: 850;
+        }
+
+        .group-count {
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 850;
+            min-width: 28px;
+            height: 22px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 8px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+
+        .group-chevron {
+            color: var(--muted);
+            transition: transform 0.18s ease;
+        }
+
+        .sidebar-group.open .group-chevron {
+            transform: rotate(90deg);
+        }
+
+        .sidebar-group-list {
+            display: none;
+            padding: 6px;
+        }
+
+        .sidebar-group.open .sidebar-group-list {
+            display: grid;
+            gap: 4px;
+        }
+
+        .sidebar-item {
+            display: grid;
+            grid-template-columns: 30px 1fr auto;
+            align-items: center;
+            gap: 9px;
+            width: 100%;
+            min-height: 40px;
+            color: var(--muted);
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            padding: 5px 7px;
+            cursor: pointer;
+            text-align: left;
+            transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+        }
+
+        .sidebar-item:hover {
+            background: rgba(255,255,255,0.045);
+            border-color: var(--line-soft);
+            color: var(--text);
+            transform: translateX(2px);
+        }
+
+        .sidebar-item.active {
+            background: linear-gradient(180deg, rgba(255,138,61,0.12), rgba(255,138,61,0.08));
+            border-color: rgba(255,138,61,0.26);
+            color: var(--text);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+        }
+
+        .category-icon {
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            color: var(--blue);
+            background: rgba(76,201,240,0.1);
+            border: 1px solid rgba(76,201,240,0.16);
+        }
+
+        .sidebar-item.active .category-icon {
+            color: var(--accent);
+            background: rgba(255,138,61,0.14);
+            border-color: rgba(255,138,61,0.24);
+        }
+
+        .category-name {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 12px;
+            font-weight: 760;
+        }
+
+        .count-pill {
+            min-width: 24px;
+            height: 22px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--muted);
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.06);
+            font-size: 11px;
+            font-weight: 800;
+            padding: 0 8px;
+        }
+
+        .main {
+            flex: 1;
+            min-width: 0;
+            overflow-y: auto;
+            padding: 24px 24px 28px;
+        }
+
+        .main-stage {
+            max-width: 1560px;
+            margin: 0 auto;
+            display: grid;
+            gap: 18px;
+        }
+
+        .main-stage > * {
+            min-width: 0;
+        }
+
+        .topbar {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(300px, 430px);
+            gap: 18px;
+            align-items: center;
+            padding: 20px;
+            border: 1px solid var(--line-soft);
+            border-radius: 8px;
+            background: linear-gradient(180deg, #242a35, #181e27);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 14px 28px rgba(0,0,0,0.14);
+            position: relative;
+            z-index: 1;
+            overflow: hidden;
+            isolation: isolate;
+        }
+
+        .topbar::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background:
+                linear-gradient(135deg, rgba(255,138,61,0.07), transparent 38%),
+                linear-gradient(180deg, rgba(255,255,255,0.025), transparent 80%);
+            pointer-events: none;
+        }
+
+        .topbar-lead {
+            display: grid;
+            grid-template-columns: 56px minmax(0, 1fr);
+            gap: 14px;
+            align-items: start;
+        }
+
+        .topbar-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--blue);
+            background: linear-gradient(180deg, rgba(76,201,240,0.12), rgba(76,201,240,0.06));
+            border: 1px solid rgba(76,201,240,0.18);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+        }
+
+        .topbar-copy,
+        .topbar-actions {
+            min-width: 0;
+        }
+
+        .topbar-actions {
+            display: grid;
+            gap: 10px;
+            align-self: stretch;
+        }
+
+        .topbar-label {
+            color: var(--faint);
+            font-size: 11px;
+            font-weight: 850;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            padding-left: 2px;
+        }
+
+        .topbar > * { min-width: 0; }
+        .topbar > * { position: relative; z-index: 1; }
+
+        .eyebrow {
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 850;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 32px;
+            line-height: 1.15;
+            letter-spacing: 0;
+        }
+
+        .header-meta {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            margin-top: 14px;
+            max-width: 640px;
+        }
+
+        .meta-pill,
+        .script-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 8px;
+            border: 1px solid var(--line-soft);
+            background: rgba(255,255,255,0.035);
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 800;
+            line-height: 1.2;
+            padding: 10px 12px;
+            min-height: 42px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+        }
+
+        .meta-pill {
+            width: 100%;
+            justify-content: flex-start;
+        }
+
+        .meta-pill svg {
+            color: var(--blue);
+        }
+
+        .search-shell {
+            padding: 10px;
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 8px;
+            background: linear-gradient(180deg, rgba(19,24,32,0.72), rgba(12,15,20,0.5));
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+        }
+
+        .search-box {
+            position: relative;
+            display: grid;
+            grid-template-columns: 18px minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 12px;
+            min-height: 56px;
+            padding: 0 14px;
+            color: var(--muted);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: linear-gradient(180deg, rgba(11,14,20,0.96), rgba(8,11,17,0.98));
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+            transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+        }
+
+        .search-box:hover {
+            border-color: rgba(76,201,240,0.22);
+        }
+
+        .search-box input {
+            width: 100%;
+            min-width: 0;
+            height: auto;
+            border: 0;
+            background: transparent;
+            color: var(--text);
+            outline: none;
+            padding: 0;
+            box-shadow: none;
+            font-size: 15px;
+            font-weight: 760;
+        }
+
+        .search-box-icon {
+            color: var(--blue);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .search-meta {
+            min-height: 28px;
+            padding: 0 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.04);
+            color: var(--muted);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            font-size: 11px;
+            font-weight: 850;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .search-box input::placeholder,
+        .global-search-field input::placeholder {
+            color: #7e8899;
+        }
+
+        .search-box:focus-within {
+            border-color: rgba(255,138,61,0.56);
+            box-shadow: 0 0 0 3px rgba(255,138,61,0.12);
+            transform: translateY(-1px);
+        }
+
+        .search-box input:focus {
+            box-shadow: none;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+            gap: 20px;
+            align-items: stretch;
+        }
+
+        .card {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            min-height: 286px;
+            overflow: hidden;
+            background:
+                radial-gradient(circle at top left, rgba(76,201,240,0.07), transparent 34%),
+                radial-gradient(circle at bottom right, rgba(255,138,61,0.04), transparent 28%),
+                linear-gradient(180deg, rgba(34,40,52,0.96), rgba(23,28,37,0.99));
+            border: 1px solid var(--line-soft);
+            border-radius: 8px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.035), 0 10px 24px rgba(0,0,0,0.12);
+            transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            inset: 0 0 auto;
+            height: 1px;
+            background: linear-gradient(90deg, rgba(255,138,61,0.55), rgba(76,201,240,0.14), transparent);
+            opacity: 0.7;
+        }
+
+        .card:hover {
+            transform: translateY(-3px);
+            border-color: rgba(76,201,240,0.26);
+            background:
+                radial-gradient(circle at top left, rgba(76,201,240,0.1), transparent 38%),
+                radial-gradient(circle at bottom right, rgba(255,138,61,0.05), transparent 32%),
+                linear-gradient(180deg, rgba(39,46,60,0.98), rgba(26,31,41,1));
+            box-shadow: 0 18px 42px rgba(0,0,0,0.22);
+        }
+
+        .card-main {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            padding: 0;
+        }
+
+        .card-top {
+            display: flex;
+            align-items: stretch;
+            justify-content: space-between;
+            gap: 14px;
+            min-width: 0;
+            padding: 18px 18px 16px;
+            background: linear-gradient(180deg, rgba(255,255,255,0.022), rgba(255,255,255,0));
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .card-top.readable {
+            cursor: pointer;
+        }
+
+        .card-top.readable:hover {
+            background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.004));
+        }
+
+        .card-top.readable:hover h2 {
+            color: var(--blue);
+        }
+
+        .card-top-main {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            min-width: 0;
+            flex: 1;
+        }
+
+        .card-top-cue {
+            width: 28px;
+            height: 28px;
+            flex: 0 0 28px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--faint);
+            background: rgba(255,255,255,0.035);
+            border: 1px solid rgba(255,255,255,0.06);
+            transform: translateX(0);
+            transition: color 0.18s ease, transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+        }
+
+        .card-top.readable:hover .card-top-cue {
+            color: var(--blue);
+            border-color: rgba(76,201,240,0.18);
+            background: rgba(76,201,240,0.08);
+            transform: translateX(2px);
+        }
+
+        .logo-wrap {
+            position: relative;
+            width: 50px;
+            height: 50px;
+            flex: 0 0 50px;
+            border-radius: 8px;
+            overflow: hidden;
+            background: transparent;
+            border: 0;
+            box-shadow: none;
+        }
+
+        .logo-wrap::before {
+            content: none;
+        }
+
+        .card:hover .logo-wrap {
+            border-color: transparent;
+            box-shadow: none;
+        }
+
+        .script-logo,
+        .script-fallback {
+            position: relative;
+            z-index: 1;
+        }
+
+        .script-logo {
+            display: block;
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            padding: 7px;
+            background: transparent;
+            filter: none;
+        }
+
+        .script-fallback {
+            width: 100%;
+            height: 100%;
+            color: #2b85b0;
+            font-weight: 900;
+            font-size: 19px;
+        }
+
+        .script-title-wrap {
+            min-width: 0;
+            flex: 1;
+            display: grid;
+            gap: 10px;
+            padding-top: 2px;
+        }
+        .card h2 {
+            margin: 0;
+            color: var(--text);
+            font-size: 16px;
+            line-height: 1.22;
+            letter-spacing: 0;
+            overflow-wrap: anywhere;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .script-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 7px;
+            min-height: 0;
+        }
+
+        .script-badge {
+            min-height: 0;
+            border-radius: 999px;
+            line-height: 1;
+            padding: 7px 10px;
+            font-size: 11px;
+            font-weight: 850;
+        }
+
+        .script-badge.type { color: #b6e7ff; border-color: rgba(76,201,240,0.2); background: rgba(76,201,240,0.09); }
+        .script-badge.privileged { color: #ffd0d7; border-color: rgba(255,92,112,0.26); background: rgba(255,92,112,0.1); }
+        .script-badge.dev { color: #ffe1c7; border-color: rgba(255,138,61,0.28); background: rgba(255,138,61,0.11); }
+        .script-badge.arm { color: #c7f7d7; border-color: rgba(53,196,107,0.24); background: rgba(53,196,107,0.1); }
+
+        .card-summary {
+            display: flex;
+            align-items: flex-start;
+            min-height: 112px;
+            padding: 18px 18px 20px;
+            border-top: 0;
+        }
+
+        .card p {
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.7;
+            margin: 0;
+            min-height: 72px;
+            display: -webkit-box;
+            -webkit-line-clamp: 4;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .card-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr 42px;
+            gap: 10px;
+            align-items: center;
+            margin-top: auto;
+            padding: 14px 18px 18px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            background:
+                linear-gradient(180deg, rgba(255,255,255,0.025), transparent 18%),
+                linear-gradient(180deg, rgba(12,16,22,0.2), rgba(10,13,18,0.42));
+        }
+
+        .deploy-btn,
+        .read-btn,
+        .icon-btn {
+            height: 42px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.16s ease, filter 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.025);
+        }
+
+        .deploy-btn {
+            gap: 8px;
+            color: #07100b;
+            background: linear-gradient(135deg, #42df7d, var(--green));
+            font-weight: 900;
+        }
+
+        .read-btn {
+            gap: 8px;
+            color: #f7fbff;
+            background: linear-gradient(180deg, rgba(76,201,240,0.14), rgba(76,201,240,0.08));
+            border: 1px solid rgba(76,201,240,0.22);
+            font-weight: 900;
+        }
+
+        .deploy-btn:hover,
+        .read-btn:hover,
+        .icon-btn:hover {
+            transform: translateY(-1px);
+            filter: brightness(1.04);
+        }
+
+        .icon-btn {
+            color: var(--muted);
+            background: rgba(255,255,255,0.04);
+            border: 1px solid var(--line-soft);
+        }
+
+        .empty-state,
+        .loading-state,
+        .error-state {
+            border: 1px dashed var(--line);
+            background: rgba(23,26,33,0.68);
+            border-radius: 8px;
+            min-height: 220px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--muted);
+            text-align: center;
+            padding: 26px;
+        }
+
+        .modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(5,7,10,0.86);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 28px;
+            backdrop-filter: blur(12px);
+        }
+
+        .modal.open { display: flex; }
+
+        .search-panel {
+            width: min(940px, 96vw);
+            max-height: min(760px, 88vh);
+            background: linear-gradient(180deg, rgba(19,24,32,0.98), rgba(14,18,25,0.99));
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 28px 80px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.03);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .search-panel-header {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 12px;
+            align-items: center;
+            padding: 18px;
+            background: linear-gradient(180deg, rgba(34,39,50,0.98), rgba(24,29,38,0.98));
+            border-bottom: 1px solid var(--line-soft);
+        }
+
+        .global-search-field {
+            position: relative;
+            color: var(--muted);
+        }
+
+        .global-search-field svg {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            pointer-events: none;
+        }
+
+        .global-search-field input {
+            width: 100%;
+            height: 50px;
+            border-radius: 8px;
+            border: 1px solid var(--line);
+            background: #07090c;
+            color: var(--text);
+            outline: none;
+            padding: 0 16px 0 46px;
+            font-size: 15px;
+            font-weight: 750;
+        }
+
+        .global-search-field input:focus {
+            border-color: rgba(76,201,240,0.52);
+            box-shadow: 0 0 0 3px rgba(76,201,240,0.12);
+        }
+
+        .search-panel-body {
+            overflow: auto;
+            padding: 16px 18px 18px;
+        }
+
+        .search-summary {
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 800;
+            padding: 0 2px 12px;
+        }
+
+        .search-results {
+            display: grid;
+            gap: 10px;
+        }
+
+        .search-result {
+            display: grid;
+            grid-template-columns: 52px minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: center;
+            width: 100%;
+            border: 1px solid var(--line-soft);
+            background: linear-gradient(180deg, rgba(33,39,50,0.9), rgba(25,30,39,0.96));
+            border-radius: 8px;
+            padding: 12px;
+            color: inherit;
+            text-align: left;
+            cursor: pointer;
+            transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.025);
+        }
+
+        .search-result:hover,
+        .search-result:focus-within {
+            background: linear-gradient(180deg, rgba(37,44,56,0.96), rgba(29,35,45,0.99));
+            border-color: rgba(76,201,240,0.24);
+            transform: translateY(-1px);
+            box-shadow: 0 10px 22px rgba(0,0,0,0.18);
+        }
+
+        .search-result .logo-wrap {
+            width: 52px;
+            height: 52px;
+            flex-basis: 52px;
+        }
+
+        .search-result-main {
+            min-width: 0;
+        }
+
+        .search-result-title {
+            color: var(--text);
+            font-size: 15px;
+            font-weight: 900;
+            line-height: 1.2;
+            overflow-wrap: anywhere;
+            margin-bottom: 7px;
+        }
+
+        .search-result-desc {
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.45;
+            margin: 8px 0 0;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .search-result-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .search-result-actions .deploy-btn,
+        .search-result-actions .read-btn,
+        .search-result-actions .icon-btn {
+            height: 38px;
+        }
+
+        .search-result-actions .icon-btn {
+            width: 38px;
+            flex: 0 0 38px;
+        }
+
+        .search-result-actions .deploy-btn,
+        .search-result-actions .read-btn {
+            padding: 0 12px;
+        }
+
+        .settings-panel,
+        .host-picker-panel {
+            width: min(860px, 96vw);
+            max-height: min(820px, 92vh);
+            background: linear-gradient(180deg, rgba(19,24,32,0.98), rgba(14,18,25,0.99));
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 28px 80px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.03);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .settings-panel {
+            width: min(980px, 96vw);
+        }
+
+        .settings-header,
+        .host-picker-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 18px;
+            background: linear-gradient(180deg, rgba(34,39,50,0.98), rgba(24,29,38,0.98));
+            border-bottom: 1px solid var(--line-soft);
+        }
+
+        .settings-title,
+        .host-picker-title {
+            flex: 1;
+            color: var(--text);
+            font-size: 18px;
+            font-weight: 900;
+        }
+
+        .settings-body,
+        .host-picker-body {
+            overflow: auto;
+            padding: 20px;
+        }
+
+        .settings-section {
+            border-bottom: 1px solid var(--line-soft);
+            padding-bottom: 18px;
+            margin-bottom: 18px;
+        }
+
+        .settings-section:last-child {
+            border-bottom: 0;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        .settings-section h3 {
+            margin: 0 0 12px;
+            font-size: 15px;
+            color: var(--text);
+        }
+
+        .host-form-list,
+        .host-picker-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .host-form,
+        .host-option {
+            border: 1px solid var(--line-soft);
+            background: rgba(255,255,255,0.035);
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .host-form {
+            display: grid;
+            gap: 14px;
+            padding: 14px;
+            background: linear-gradient(180deg, rgba(31,35,45,0.92), rgba(21,25,32,0.98));
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.025);
+        }
+
+        .host-card-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .host-card-title {
+            color: var(--text);
+            font-size: 15px;
+            font-weight: 900;
+            margin-bottom: 4px;
+        }
+
+        .host-card-meta {
+            color: var(--muted);
+            font-size: 13px;
+            overflow-wrap: anywhere;
+        }
+
+        .host-card-section {
+            display: grid;
+            gap: 10px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+        }
+
+        .host-card-section-title {
+            color: var(--faint);
+            font-size: 11px;
+            font-weight: 850;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .settings-grid.auth {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .settings-grid.auth.wide {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .settings-grid.auth.extra {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .settings-grid.auth.single {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .settings-note {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.5;
+            margin: 0;
+        }
+
+        .settings-chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .settings-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            min-height: 32px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(76,201,240,0.18);
+            background: rgba(76,201,240,0.08);
+            color: #bfeeff;
+            font-size: 12px;
+            font-weight: 800;
+        }
+
+        .settings-field {
+            display: grid;
+            gap: 6px;
+        }
+
+        .settings-field label {
+            color: var(--faint);
+            font-size: 10px;
+            font-weight: 850;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .settings-field input,
+        .settings-field select {
+            height: 38px;
+            border-radius: 8px;
+            border: 1px solid var(--line);
+            background: #07090c;
+            color: var(--text);
+            outline: none;
+            padding: 0 10px;
+        }
+
+        .settings-field select {
+            cursor: pointer;
+        }
+
+        .settings-field input:focus,
+        .settings-field select:focus {
+            border-color: rgba(76,201,240,0.52);
+            box-shadow: 0 0 0 3px rgba(76,201,240,0.1);
+        }
+
+        .settings-actions,
+        .key-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .secondary-btn {
+            height: 40px;
+            border-radius: 8px;
+            border: 1px solid var(--line-soft);
+            background: rgba(255,255,255,0.055);
+            color: var(--text);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 0 13px;
+            font-weight: 850;
+        }
+
+        .secondary-btn:hover {
+            background: rgba(76,201,240,0.1);
+            border-color: rgba(76,201,240,0.22);
+        }
+
+        .public-key-box {
+            margin: 12px 0;
+            color: #d7f7e0;
+            background: #07090c;
+            border: 1px solid var(--line-soft);
+            border-radius: 8px;
+            padding: 12px;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .settings-hint {
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.5;
+            margin: 8px 0 0;
+        }
+
+        .settings-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            padding: 14px 18px;
+            border-top: 1px solid var(--line-soft);
+            background: rgba(7,9,12,0.62);
+        }
+
+        .host-option {
+            display: grid;
+            grid-template-columns: 38px minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: center;
+            cursor: pointer;
+            text-align: left;
+            color: inherit;
+        }
+
+        .host-option:hover {
+            border-color: rgba(76,201,240,0.24);
+            background: rgba(76,201,240,0.07);
+        }
+
+        .host-option-title {
+            color: var(--text);
+            font-weight: 900;
+            margin-bottom: 4px;
+        }
+
+        .host-option-meta {
+            color: var(--muted);
+            font-size: 13px;
+            overflow-wrap: anywhere;
+        }
+
+        #terminal-box {
+            width: min(1320px, 96vw);
+            height: min(820px, 88vh);
+            background: linear-gradient(180deg, rgba(12,16,22,0.98), rgba(6,8,12,0.99));
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0 30px 90px rgba(0,0,0,0.46), inset 0 1px 0 rgba(255,255,255,0.03);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .terminal-header {
+            height: 48px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 0 14px;
+            background: linear-gradient(180deg, rgba(30,35,45,0.98), rgba(21,25,32,0.98));
+            border-bottom: 1px solid var(--line-soft);
+        }
+
+        .terminal-title {
+            min-width: 0;
+            color: var(--text);
+            font-size: 13px;
+            font-weight: 800;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+
+        .terminal-countdown {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 28px;
+            padding: 0 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(53,196,107,0.24);
+            background: rgba(53,196,107,0.12);
+            color: #c9f8d9;
+            font-size: 11px;
+            font-weight: 900;
+            white-space: nowrap;
+        }
+
+        .terminal-spacer { flex: 1; }
+        .close-btn {
+            color: var(--muted);
+            background: rgba(255,255,255,0.06);
+            border: 1px solid var(--line-soft);
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .close-btn:hover { color: var(--text); background: rgba(255,92,112,0.14); border-color: rgba(255,92,112,0.28); }
+        #term-body { flex: 1; min-height: 0; overflow: hidden; }
+        #term-body .xterm { width: 100%; height: 100%; padding: 0; }
+        #term-body .xterm-viewport { overflow-y: auto; }
+
+        .detail-box {
+            width: min(1040px, 96vw);
+            max-height: min(860px, 92vh);
+            background: linear-gradient(180deg, rgba(19,24,32,0.98), rgba(14,18,25,0.99));
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 28px 80px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.03);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .detail-header {
+            display: grid;
+            grid-template-columns: 56px minmax(0, 1fr) auto;
+            gap: 14px;
+            align-items: center;
+            padding: 18px;
+            background: linear-gradient(180deg, rgba(34,39,50,0.98), rgba(24,29,38,0.98));
+            border-bottom: 1px solid var(--line-soft);
+        }
+
+        .detail-header .logo-wrap {
+            width: 56px;
+            height: 56px;
+            flex-basis: 56px;
+        }
+
+        .detail-kicker {
+            color: var(--accent);
+            font-size: 11px;
+            font-weight: 850;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+
+        .detail-title {
+            margin: 0;
+            color: var(--text);
+            font-size: 24px;
+            line-height: 1.15;
+            overflow-wrap: anywhere;
+        }
+
+        .detail-body {
+            padding: 20px;
+            overflow: auto;
+        }
+
+        .detail-status {
+            border: 1px solid var(--line-soft);
+            background: rgba(255,255,255,0.045);
+            border-radius: 8px;
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 750;
+            padding: 10px 12px;
+            margin-bottom: 14px;
+        }
+
+        .detail-status.error {
+            color: #ffd0d7;
+            border-color: rgba(255,92,112,0.24);
+            background: rgba(255,92,112,0.1);
+        }
+
+        .detail-section {
+            padding: 18px 0;
+            border-bottom: 1px solid var(--line-soft);
+        }
+
+        .detail-section:first-child { padding-top: 0; }
+        .detail-section:last-child { border-bottom: 0; padding-bottom: 0; }
+
+        .detail-section h3 {
+            margin: 0 0 12px;
+            color: var(--text);
+            font-size: 16px;
+            letter-spacing: 0;
+        }
+
+        .detail-section p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.6;
+            font-size: 14px;
+            white-space: pre-line;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(285px, 1fr));
+            gap: 8px;
+        }
+
+        .install-method,
+        .release-item,
+        .detail-note {
+            border: 1px solid var(--line-soft);
+            background: rgba(255,255,255,0.04);
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .detail-field {
+            display: grid;
+            grid-template-columns: 28px minmax(0, 1fr) auto;
+            gap: 10px;
+            align-items: center;
+            min-height: 56px;
+            border: 1px solid rgba(255,255,255,0.065);
+            background: rgba(255,255,255,0.025);
+            border-radius: 8px;
+            padding: 10px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.025);
+        }
+
+        .detail-field-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--blue);
+            background: rgba(76,201,240,0.08);
+            border: 1px solid rgba(76,201,240,0.13);
+        }
+
+        .detail-field-content {
+            min-width: 0;
+        }
+
+        .detail-label {
+            color: var(--faint);
+            font-size: 10px;
+            font-weight: 850;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .detail-value,
+        .detail-value a {
+            color: var(--text);
+            font-size: 13px;
+            font-weight: 760;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            text-decoration: none;
+        }
+
+        .detail-value a:hover { color: var(--blue); }
+
+        .detail-link-icon {
+            color: var(--faint);
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255,255,255,0.035);
+            border: 1px solid var(--line-soft);
+        }
+
+        .detail-overview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .overview-item {
+            border: 1px solid rgba(255,255,255,0.065);
+            background: rgba(255,255,255,0.025);
+            border-radius: 8px;
+            padding: 10px 12px;
+        }
+
+        .overview-label {
+            color: var(--faint);
+            font-size: 10px;
+            font-weight: 850;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+
+        .overview-value {
+            color: var(--text);
+            font-size: 14px;
+            font-weight: 850;
+            overflow-wrap: anywhere;
+        }
+
+        .detail-subgrid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 14px;
+        }
+
+        .detail-panel {
+            border: 1px solid var(--line-soft);
+            background: rgba(255,255,255,0.025);
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .detail-panel .detail-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .detail-panel-title {
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 900;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin: 0 0 10px;
+        }
+
+        .detail-chips,
+        .resource-pills {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .detail-chip,
+        .resource-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 999px;
+            border: 1px solid var(--line-soft);
+            background: rgba(255,255,255,0.055);
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 800;
+            padding: 7px 10px;
+        }
+
+        .detail-note {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
+            gap: 10px;
+            align-items: start;
+            margin-bottom: 10px;
+        }
+
+        .detail-note:last-child { margin-bottom: 0; }
+
+        .note-type {
+            color: #07100b;
+            background: linear-gradient(135deg, #ffd56a, #ffb23f);
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 900;
+            padding: 5px 8px;
+            text-transform: uppercase;
+        }
+
+        .install-command {
+            margin: 0;
+            color: #d7f7e0;
+            background: #07090c;
+            border: 1px solid var(--line-soft);
+            border-radius: 8px;
+            padding: 14px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+            font-size: 13px;
+            line-height: 1.55;
+        }
+
+        .install-methods,
+        .release-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .method-title,
+        .release-title {
+            color: var(--text);
+            font-size: 14px;
+            font-weight: 850;
+            margin-bottom: 10px;
+        }
+
+        .release-title a {
+            color: var(--text);
+            text-decoration: none;
+        }
+
+        .release-title a:hover { color: var(--blue); }
+
+        .release-meta {
+            color: var(--faint);
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+
+        .release-body {
+            color: var(--muted);
+            white-space: pre-wrap;
+            max-height: 220px;
+            overflow: auto;
+            font-size: 13px;
+            line-height: 1.55;
+        }
+
+        .detail-footer {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            justify-content: flex-end;
+            padding: 14px 18px;
+            background: linear-gradient(180deg, rgba(10,13,18,0.42), rgba(10,13,18,0.72));
+            border-top: 1px solid var(--line-soft);
+        }
+
+        .detail-footer .icon-btn {
+            width: 42px;
+            flex: 0 0 42px;
+        }
+
+        .detail-footer .deploy-btn {
+            padding: 0 18px;
+        }
+
+        .app-shell.sidebar-collapsed .sidebar {
+            width: 94px;
+            flex-basis: 94px;
+            padding: 18px 10px 22px;
+        }
+
+        .app-shell.sidebar-collapsed .brand {
+            padding: 10px;
+        }
+
+        .app-shell.sidebar-collapsed .brand-main {
+            justify-content: center;
+        }
+
+        .app-shell.sidebar-collapsed .brand-copy,
+        .app-shell.sidebar-collapsed .sidebar-settings-label,
+        .app-shell.sidebar-collapsed .sidebar-heading,
+        .app-shell.sidebar-collapsed .group-name,
+        .app-shell.sidebar-collapsed .group-count,
+        .app-shell.sidebar-collapsed .count-pill,
+        .app-shell.sidebar-collapsed .category-name {
+            display: none;
+        }
+
+        .app-shell.sidebar-collapsed .sidebar-toolbar {
+            grid-template-columns: 1fr;
+        }
+
+        .app-shell.sidebar-collapsed .sidebar-bottom {
+            padding-top: 12px;
+        }
+
+        .app-shell.sidebar-collapsed .sidebar-settings-btn,
+        .app-shell.sidebar-collapsed .sidebar-view-btn {
+            justify-content: center;
+            padding: 0;
+        }
+
+        .app-shell.sidebar-collapsed .sidebar-group {
+            overflow: visible;
+        }
+
+        .app-shell.sidebar-collapsed .sidebar-group-toggle {
+            grid-template-columns: 1fr;
+            justify-items: center;
+            gap: 0;
+            padding: 8px;
+        }
+
+        .app-shell.sidebar-collapsed .group-chevron {
+            display: none;
+        }
+
+        .app-shell.sidebar-collapsed .sidebar-group-list {
+            padding: 6px 0 0;
+            gap: 6px;
+            justify-items: center;
+        }
+
+        .app-shell.sidebar-collapsed .sidebar-item {
+            grid-template-columns: 1fr;
+            justify-items: center;
+            padding: 5px;
+            min-height: 42px;
+        }
+
+        .app-shell.sidebar-collapsed .sidebar-item:hover {
+            transform: none;
+        }
+
+        .app-shell.sidebar-collapsed .category-icon {
+            width: 32px;
+            height: 32px;
+        }
+
+        @media (max-width: 900px) {
+            body { overflow: auto; }
+            .app-shell { min-height: 100vh; height: auto; flex-direction: column; }
+            .sidebar {
+                width: 100%;
+                flex: 0 0 auto;
+                max-height: 320px;
+                border-right: 0;
+                border-bottom: 1px solid var(--line-soft);
+                overflow: visible;
+            }
+            .sidebar-sections { overflow: visible; padding-right: 0; }
+            .main { overflow: visible; padding: 18px; }
+            .main-stage { gap: 16px; }
+            .topbar { grid-template-columns: 1fr; align-items: stretch; padding: 16px; }
+            .topbar-lead { grid-template-columns: 46px minmax(0, 1fr); gap: 12px; }
+            .topbar-icon { width: 46px; height: 46px; }
+            .header-meta {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                max-width: none;
+            }
+            h1 { font-size: 25px; }
+            .grid { grid-template-columns: 1fr; }
+            .card { min-height: 248px; }
+            .card-main { padding: 0; }
+            .card-top { padding: 16px 16px 14px; }
+            .card-top-cue { width: 26px; height: 26px; flex-basis: 26px; }
+            .card-summary { min-height: 0; padding: 16px; }
+            .card-actions { padding: 12px 16px 16px; }
+            .detail-header { grid-template-columns: 48px minmax(0, 1fr) auto; padding: 14px; }
+            .detail-header .logo-wrap { width: 48px; height: 48px; flex-basis: 48px; }
+            .detail-title { font-size: 20px; }
+            .detail-body { padding: 16px; }
+            .detail-footer { justify-content: stretch; }
+            .detail-footer .deploy-btn,
+            .detail-footer .icon-btn { flex: 1; }
+            .search-panel-header { grid-template-columns: 1fr auto; padding: 12px; }
+            .search-result { grid-template-columns: 44px minmax(0, 1fr); }
+            .search-result .logo-wrap { width: 44px; height: 44px; flex-basis: 44px; }
+            .search-result-actions {
+                grid-column: 1 / -1;
+                justify-content: stretch;
+            }
+            .search-result-actions .deploy-btn,
+            .search-result-actions .read-btn { flex: 1; }
+            .search-shell { padding: 8px; }
+            .search-box {
+                grid-template-columns: 18px minmax(0, 1fr);
+                min-height: 50px;
+                padding: 0 12px;
+            }
+            .search-meta { display: none; }
+            .detail-grid { grid-template-columns: 1fr; }
+            .detail-field { grid-template-columns: 28px minmax(0, 1fr) auto; }
+            .host-form,
+            .settings-grid,
+            .settings-grid.auth,
+            .settings-grid.auth.extra,
+            .settings-grid.auth.single { grid-template-columns: 1fr; }
+            .host-option { grid-template-columns: 34px minmax(0, 1fr); }
+            .host-option .deploy-btn { grid-column: 1 / -1; }
+            .app-shell.sidebar-collapsed .sidebar {
+                width: 100%;
+                flex-basis: auto;
+                padding: 18px 16px 22px;
+            }
+            .app-shell.sidebar-collapsed .brand-copy { display: block; }
+            .app-shell.sidebar-collapsed .sidebar-settings-label,
+            .app-shell.sidebar-collapsed .group-name,
+            .app-shell.sidebar-collapsed .category-name { display: inline; }
+            .app-shell.sidebar-collapsed .sidebar-heading { display: block; }
+            .app-shell.sidebar-collapsed .group-count,
+            .app-shell.sidebar-collapsed .count-pill { display: inline-flex; }
+            .app-shell.sidebar-collapsed .sidebar-toolbar {
+                grid-template-columns: minmax(0, 1fr) 42px;
+            }
+            .app-shell.sidebar-collapsed .sidebar-bottom {
+                padding-top: 14px;
+            }
+            .app-shell.sidebar-collapsed .sidebar-group-toggle {
+                grid-template-columns: 28px 1fr auto 18px;
+                gap: 9px;
+                padding: 9px 10px;
+            }
+            .app-shell.sidebar-collapsed .group-chevron {
+                display: inline-flex;
+            }
+            .app-shell.sidebar-collapsed .sidebar-group-list {
+                padding: 6px;
+                justify-items: stretch;
+            }
+            .app-shell.sidebar-collapsed .sidebar-item {
+                grid-template-columns: 30px 1fr auto;
+                justify-items: stretch;
+                padding: 5px 7px;
+            }
+            .app-shell.sidebar-collapsed .sidebar-settings-btn,
+            .app-shell.sidebar-collapsed .sidebar-view-btn {
+                padding: 0 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useMemo, useState, useEffect, useRef } = React;
+        const OFFICIAL_CATEGORY_ORDER = [
+            'Proxmox & Virtualization',
+            'Operating Systems',
+            'Containers & Docker',
+            'Network & Firewall',
+            'Adblock & DNS',
+            'Authentication & Security',
+            'Backup & Recovery',
+            'Databases',
+            'Monitoring & Analytics',
+            'Dashboards & Frontends',
+            'Files & Downloads',
+            'Documents & Notes',
+            'Media & Streaming',
+            '*Arr Suite',
+            'NVR & Cameras',
+            'IoT & Smart Home',
+            'ZigBee, Z-Wave & Matter',
+            'MQTT & Messaging',
+            'Automation & Scheduling',
+            'AI / Coding & Dev-Tools',
+            'Webservers & Proxies',
+            'Bots & ChatOps',
+            'Finance & Budgeting',
+            'Gaming & Leisure',
+            'Business & ERP',
+            'Miscellaneous',
+        ];
+        const RAW_SCRIPT_BASE_URL = 'https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main';
+        const SCRIPT_PATH_OVERRIDES = {
+            netdata: 'tools/addon/netdata.sh',
+            'pve-netdata': 'tools/addon/netdata.sh',
+        };
+
+        const CATEGORY_ICONS = [
+            { match: /proxmox|virtual/i, icon: 'server' },
+            { match: /operating/i, icon: 'monitor' },
+            { match: /container|docker/i, icon: 'box' },
+            { match: /network|firewall|adblock|dns/i, icon: 'shield' },
+            { match: /automation|schedule/i, icon: 'clock' },
+            { match: /database/i, icon: 'database' },
+            { match: /monitor|analytics/i, icon: 'chart' },
+            { match: /download|file/i, icon: 'download' },
+            { match: /document|note/i, icon: 'file' },
+            { match: /media|stream|nvr|camera/i, icon: 'play' },
+            { match: /zigbee|matter|home/i, icon: 'home' },
+            { match: /security|auth/i, icon: 'lock' },
+            { match: /backup|recovery/i, icon: 'download' },
+            { match: /dashboard|frontend/i, icon: 'monitor' },
+            { match: /webserver|proxy|proxies/i, icon: 'server' },
+            { match: /bot|chatops/i, icon: 'code' },
+            { match: /finance|budget/i, icon: 'chart' },
+            { match: /ai|coding|dev/i, icon: 'code' },
+            { match: /business/i, icon: 'building' },
+            { match: /game/i, icon: 'gamepad' },
+        ];
+
+        const SIDEBAR_GROUPS = [
+            {
+                name: 'Core',
+                icon: 'server',
+                categories: ['Proxmox & Virtualization', 'Operating Systems', 'Containers & Docker'],
+            },
+            {
+                name: 'Network',
+                icon: 'shield',
+                categories: ['Network & Firewall', 'Adblock & DNS', 'Authentication & Security', 'Webservers & Proxies'],
+            },
+            {
+                name: 'Data',
+                icon: 'database',
+                categories: ['Backup & Recovery', 'Databases', 'Monitoring & Analytics', 'Dashboards & Frontends'],
+            },
+            {
+                name: 'Files & Docs',
+                icon: 'file',
+                categories: ['Files & Downloads', 'Documents & Notes'],
+            },
+            {
+                name: 'Media',
+                icon: 'play',
+                categories: ['Media & Streaming', '*Arr Suite', 'NVR & Cameras'],
+            },
+            {
+                name: 'Home & IoT',
+                icon: 'home',
+                categories: ['IoT & Smart Home', 'ZigBee, Z-Wave & Matter', 'MQTT & Messaging', 'Automation & Scheduling'],
+            },
+            {
+                name: 'Apps',
+                icon: 'spark',
+                categories: ['AI / Coding & Dev-Tools', 'Bots & ChatOps', 'Finance & Budgeting', 'Gaming & Leisure', 'Business & ERP', 'Miscellaneous'],
+            },
+        ];
+
+        function Icon({ name, title }) {
+            const paths = {
+                arm: <><path d="M6 8h7a4 4 0 0 1 0 8H7" /><path d="M7 5v14" /><path d="M3 8h4" /><path d="M3 16h4" /></>,
+                box: <><path d="M3 7.5 12 3l9 4.5-9 4.5L3 7.5Z" /><path d="M3 7.5v9L12 21l9-4.5v-9" /><path d="M12 12v9" /></>,
+                building: <><path d="M4 21V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v16" /><path d="M9 21v-5h3v5" /><path d="M8 7h1" /><path d="M12 7h1" /><path d="M8 11h1" /><path d="M12 11h1" /><path d="M3 21h18" /></>,
+                chart: <><path d="M4 19V5" /><path d="M4 19h16" /><path d="m7 15 3-4 3 2 4-7" /></>,
+                chevron: <path d="m9 6 6 6-6 6" />,
+                clock: <><circle cx="12" cy="12" r="8" /><path d="M12 8v5l3 2" /></>,
+                code: <><path d="m8 9-4 3 4 3" /><path d="m16 9 4 3-4 3" /><path d="m14 5-4 14" /></>,
+                database: <><ellipse cx="12" cy="5" rx="7" ry="3" /><path d="M5 5v6c0 1.7 3.1 3 7 3s7-1.3 7-3V5" /><path d="M5 11v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" /></>,
+                dev: <><path d="M12 2v5" /><path d="M12 17v5" /><path d="M4.2 4.2 7.8 7.8" /><path d="m16.2 16.2 3.6 3.6" /><path d="M2 12h5" /><path d="M17 12h5" /><path d="m4.2 19.8 3.6-3.6" /><path d="m16.2 7.8 3.6-3.6" /></>,
+                download: <><path d="M12 3v11" /><path d="m7 9 5 5 5-5" /><path d="M5 20h14" /></>,
+                external: <><path d="M14 4h6v6" /><path d="m10 14 10-10" /><path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5" /></>,
+                file: <><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v5h5" /><path d="M9 13h6" /><path d="M9 17h4" /></>,
+                gamepad: <><path d="M7 13h3" /><path d="M8.5 11.5v3" /><path d="M15 12h.01" /><path d="M17 14h.01" /><path d="M6.8 18h10.4a4 4 0 0 0 3.9-4.9l-.7-3A4 4 0 0 0 16.5 7h-9a4 4 0 0 0-3.9 3.1l-.7 3A4 4 0 0 0 6.8 18Z" /></>,
+                home: <><path d="m3 11 9-8 9 8" /><path d="M5 10v10h14V10" /><path d="M9 20v-6h6v6" /></>,
+                info: <><circle cx="12" cy="12" r="9" /><path d="M12 10v6" /><path d="M12 7h.01" /></>,
+                library: <><rect x="5" y="5" width="14" height="5" rx="1.5" /><rect x="5" y="14" width="14" height="5" rx="1.5" /><path d="M8 7.5h8" /><path d="M8 16.5h8" /></>,
+                lock: <><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></>,
+                monitor: <><rect x="4" y="5" width="16" height="11" rx="2" /><path d="M8 21h8" /><path d="M12 16v5" /></>,
+                'panel-close': <><path d="M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4" /><path d="M8 5v14" /><path d="m15 9 4 3-4 3" /></>,
+                'panel-open': <><path d="M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4" /><path d="M16 5v14" /><path d="m9 9-4 3 4 3" /></>,
+                play: <><path d="M8 5v14l11-7-11-7Z" /></>,
+                rocket: <><path d="M5 14c-1.4 1.1-2 2.7-2 5 2.3 0 3.9-.6 5-2" /><path d="M9 15 5 11l4-5 4 4" /><path d="m14 11 4 4-5 4-4-4" /><path d="M14 6c1.5-1.6 3.3-2.5 6-2-.5 2.7-1.4 4.5-3 6" /></>,
+                search: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></>,
+                server: <><rect x="4" y="4" width="16" height="6" rx="2" /><rect x="4" y="14" width="16" height="6" rx="2" /><path d="M8 7h.01" /><path d="M8 17h.01" /></>,
+                settings: <><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1l2-1.6-2-3.4-2.4 1a7.9 7.9 0 0 0-1.7-1L14.4 2h-4.8l-.4 2.9a7.9 7.9 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .3 0 .7.1 1l-2 1.6 2 3.4 2.4-1a7.9 7.9 0 0 0 1.7 1l.4 2.9h4.8l.4-2.9a7.9 7.9 0 0 0 1.7-1l2.4 1 2-3.4-2-1.6c.1-.3.1-.7.1-1Z" /></>,
+                shield: <><path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6l-7-3Z" /><path d="m9 12 2 2 4-5" /></>,
+                spark: <><path d="M12 3 9.8 9.8 3 12l6.8 2.2L12 21l2.2-6.8L21 12l-6.8-2.2L12 3Z" /></>,
+                x: <><path d="M6 6l12 12" /><path d="M18 6 6 18" /></>,
+            };
+
+            return (
+                <svg viewBox="0 0 24 24" aria-hidden={title ? undefined : true} role={title ? 'img' : undefined}>
+                    {title && <title>{title}</title>}
+                    {paths[name] || paths.spark}
+                </svg>
+            );
+        }
+
+        function titleCase(value) {
+            return value.replace(/\b\w/g, char => char.toUpperCase());
+        }
+
+        function cleanText(value) {
+            return String(value || '')
+                .replace(/<\/p>\s*<p[^>]*>/gi, '\n\n')
+                .replace(/<br\s*\/?>/gi, '\n')
+                .replace(/<\/?(p|strong|em|b|i|ul|ol|li|a|code|pre|span|div|h[1-6])\b[^>]*>/gi, '')
+                .replace(/&nbsp;/gi, ' ')
+                .replace(/&amp;/gi, '&')
+                .replace(/&lt;/gi, '<')
+                .replace(/&gt;/gi, '>')
+                .replace(/&quot;/gi, '"')
+                .replace(/&#39;/gi, "'")
+                .replace(/<\/p>\s*<p[^>]*>/gi, '\n\n')
+                .replace(/<br\s*\/?>/gi, '\n')
+                .replace(/<\/?(p|strong|em|b|i|ul|ol|li|a|code|pre|span|div|h[1-6])\b[^>]*>/gi, '')
+                .replace(/[ \t]+\n/g, '\n')
+                .replace(/\n{3,}/g, '\n\n')
+                .trim();
+        }
+
+        function normalizeNotes(notes) {
+            return Array.isArray(notes)
+                ? notes.map(note => ({ ...note, text: cleanText(note.text) })).filter(note => note.text)
+                : [];
+        }
+
+        function sourceUrlForPath(scriptPath) {
+            return `${RAW_SCRIPT_BASE_URL}/${String(scriptPath || '').replace(/^\/+/, '')}`;
+        }
+
+        function githubUrlForPath(scriptPath) {
+            return `https://github.com/community-scripts/ProxmoxVE/blob/main/${String(scriptPath || '').replace(/^\/+/, '')}`;
+        }
+
+        function installCommandForPath(scriptPath) {
+            return `bash -c "$(curl -fsSL ${sourceUrlForPath(scriptPath)})"`;
+        }
+
+        function slugify(value) {
+            return String(value || '')
+                .toLowerCase()
+                .trim()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '');
+        }
+
+        function categorySlug(value) {
+            return String(value || '')
+                .toLowerCase()
+                .replace(/&/g, ' and ')
+                .replace(/\*/g, '')
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '');
+        }
+
+        function categoryFromUrl(categoryNames) {
+            const requested = new URLSearchParams(window.location.search).get('category');
+            if (!requested) return '';
+
+            return categoryNames.find(categoryName => categorySlug(categoryName) === requested) || '';
+        }
+
+        function scriptSlugFromPath() {
+            const match = window.location.pathname.match(/^\/scripts\/([^/]+)/);
+            return match ? decodeURIComponent(match[1]) : '';
+        }
+
+        function categoryIconName(category) {
+            return CATEGORY_ICONS.find(entry => entry.match.test(category))?.icon || 'spark';
+        }
+
+        function sidebarGroupsForCategories(categoryNames) {
+            const available = new Set(categoryNames);
+            const used = new Set();
+            const groups = SIDEBAR_GROUPS.map(group => {
+                const categories = group.categories.filter(category => available.has(category));
+                categories.forEach(category => used.add(category));
+                return { ...group, categories };
+            }).filter(group => group.categories.length > 0);
+            const leftover = categoryNames.filter(category => !used.has(category));
+
+            if (leftover.length > 0) {
+                groups.push({
+                    name: 'Other',
+                    icon: 'spark',
+                    categories: leftover,
+                });
+            }
+
+            return groups;
+        }
+
+        function addScriptToCategory(grouped, categoryName, script) {
+            if (!grouped[categoryName]) grouped[categoryName] = [];
+            if (!grouped[categoryName].some(existing => (existing.slug || existing.name) === (script.slug || script.name))) {
+                grouped[categoryName].push(script);
+            }
+        }
+
+        function orderGroupedCategories(grouped, orderedCategoryNames = OFFICIAL_CATEGORY_ORDER) {
+            const ordered = {};
+
+            orderedCategoryNames.forEach(categoryName => {
+                if (grouped[categoryName]?.length) {
+                    ordered[categoryName] = grouped[categoryName];
+                }
+            });
+
+            Object.entries(grouped).forEach(([categoryName, scripts]) => {
+                if (!ordered[categoryName] && scripts.length) {
+                    ordered[categoryName] = scripts;
+                }
+            });
+
+            return ordered;
+        }
+
+        function isVisibleOfficialScript(script) {
+            return !script?.is_disabled
+                && !script?.is_deleted
+                && !script?.disable_message
+                && !script?.deleted_message;
+        }
+
+        function normalizeScripts(data) {
+            if (!data) return {};
+            if (!Array.isArray(data) && Object.values(data).every(Array.isArray)) {
+                const filtered = Object.fromEntries(
+                    Object.entries(data).map(([categoryName, scripts]) => [
+                        categoryName,
+                        scripts.filter(isVisibleOfficialScript),
+                    ])
+                );
+
+                return orderGroupedCategories(filtered, Object.keys(data));
+            }
+
+            const scripts = Array.isArray(data) ? data : data.scripts || data.items || [];
+            const categoryList = data.categories || [];
+            const categoryById = new Map(categoryList.map(category => [category.id, category]));
+            const officialCategoryNames = categoryList.length
+                ? categoryList
+                    .slice()
+                    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+                    .map(category => category.name)
+                : OFFICIAL_CATEGORY_ORDER;
+            const grouped = {};
+
+            officialCategoryNames.forEach(categoryName => {
+                grouped[categoryName] = [];
+            });
+
+            scripts.forEach(script => {
+                if (!isVisibleOfficialScript(script)) return;
+
+                const categories = script.expand?.categories?.length ? script.expand.categories : script.categories || script.category;
+                const rawCategories = Array.isArray(categories) ? categories : categories ? [categories] : [];
+                const categoryNames = rawCategories
+                    .map(category => {
+                        if (!category) return null;
+                        if (typeof category === 'string') return categoryById.get(category)?.name || category;
+                        return category.name || category.title || category.id || null;
+                    })
+                    .filter(categoryName => categoryName && (categoryList.length === 0 || officialCategoryNames.includes(categoryName)));
+
+                const normalizedScript = {
+                    ...script,
+                    slug: script.slug || slugify(script.name),
+                    description: cleanText(script.description),
+                    notes: normalizeNotes(script.notes),
+                    categories: categoryNames.length ? categoryNames : ['Miscellaneous'],
+                };
+
+                normalizedScript.categories.forEach(categoryName => {
+                    addScriptToCategory(grouped, categoryName, normalizedScript);
+                });
+            });
+
+            return orderGroupedCategories(grouped, officialCategoryNames);
+        }
+
+        function displayCategoryName(category) {
+            return category.includes(' ') || category.includes('&') || category.includes('/')
+                ? category
+                : titleCase(category);
+        }
+
+        function ScriptLogo({ script }) {
+            const [logoFailed, setLogoFailed] = useState(false);
+            const initial = (script.name || '?').trim().charAt(0).toUpperCase();
+            const hasLogo = Boolean(script.logo) && !logoFailed;
+
+            useEffect(() => {
+                setLogoFailed(false);
+            }, [script.logo]);
+
+            return (
+                <div className="logo-wrap">
+                    {!hasLogo && <span className="script-fallback">{initial}</span>}
+                    {hasLogo && (
+                        <img
+                            className="script-logo"
+                            src={script.logo}
+                            alt=""
+                            loading="lazy"
+                            onError={() => setLogoFailed(true)}
+                        />
+                    )}
+                </div>
+            );
+        }
+
+        function ScriptBadges({ script }) {
+            const type = script.type || script.expand?.type?.type || 'script';
+
+            return (
+                <div className="script-badges">
+                    <span className="script-badge type"><Icon name="box" />{String(type).toUpperCase()}</span>
+                    {script.privileged && <span className="script-badge privileged"><Icon name="lock" />Privileged</span>}
+                    {script.is_dev && <span className="script-badge dev"><Icon name="dev" />Dev</span>}
+                    {script.has_arm && <span className="script-badge arm"><Icon name="arm" />ARM</span>}
+                </div>
+            );
+        }
+
+        function formatDate(value) {
+            if (!value) return '';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return value;
+            return new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric' }).format(date);
+        }
+
+        function labelFromType(value) {
+            return titleCase(String(value || 'Default').replace(/[-_]+/g, ' '));
+        }
+
+        function hasValue(value) {
+            return value !== undefined && value !== null && value !== '' && (!Array.isArray(value) || value.length > 0);
+        }
+
+        function defaultHost(index = 0) {
+            return {
+                id: `host-${Date.now()}-${index}`,
+                name: `Proxmox ${index + 1}`,
+                address: '',
+                port: 22,
+                user: 'root',
+                authType: 'app-key',
+                password: '',
+                privateKeyPath: '',
+                passphrase: '',
+                hostKeyMode: 'accept-new',
+                sessionMode: 'normal',
+            };
+        }
+
+        function hostAuthTypeLabel(value) {
+            if (value === 'password') return 'Password';
+            if (value === 'private-key') return 'Custom Key';
+            return 'Generated Key';
+        }
+
+        function hostSessionModeLabel(value) {
+            return value === 'persistent' ? 'Persistent Reconnect' : 'Normal SSH';
+        }
+
+        function hostConnectionLabel(host) {
+            return `${host.user || 'root'}@${host.address || 'host'}:${host.port || 22}`;
+        }
+
+        function DetailField({ icon, label, value, href }) {
+            if (!hasValue(value)) return null;
+            const display = Array.isArray(value) ? value.join(', ') : String(value);
+
+            return (
+                <div className="detail-field">
+                    <span className="detail-field-icon"><Icon name={icon || 'info'} /></span>
+                    <div className="detail-field-content">
+                        <div className="detail-label">{label}</div>
+                        <div className="detail-value">
+                            {href ? (
+                                <a href={href} target="_blank" rel="noopener noreferrer">{display}</a>
+                            ) : display}
+                        </div>
+                    </div>
+                    {href && <span className="detail-link-icon"><Icon name="external" /></span>}
+                </div>
+            );
+        }
+
+        function OverviewItem({ label, value }) {
+            if (!hasValue(value)) return null;
+            const display = Array.isArray(value) ? value.join(', ') : String(value);
+
+            return (
+                <div className="overview-item">
+                    <div className="overview-label">{label}</div>
+                    <div className="overview-value">{display}</div>
+                </div>
+            );
+        }
+
+        function InstallMethod({ method }) {
+            const resources = method.resources || {};
+            const os = [resources.os, resources.version].filter(Boolean).join(' ');
+            const items = [
+                ['OS', os],
+                ['CPU', resources.cpu],
+                ['RAM', resources.ram ? `${resources.ram} MB` : ''],
+                ['HDD', resources.hdd ? `${resources.hdd} GB` : ''],
+            ].filter(([, value]) => hasValue(value));
+
+            return (
+                <div className="install-method">
+                    <div className="method-title">{labelFromType(method.type)}</div>
+                    <div className="resource-pills">
+                        {items.map(([label, value]) => (
+                            <span key={label} className="resource-pill">{label}: {value}</span>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        function scriptCategories(script) {
+            if (script.categories?.length && typeof script.categories[0] !== 'string') {
+                return script.categories.map(category => category.name || category.title || category.id).filter(Boolean);
+            }
+            if (script.categories?.length && !String(script.categories[0]).startsWith('scriptcat')) {
+                return script.categories;
+            }
+            if (script.expand?.categories?.length) {
+                return script.expand.categories.map(category => category.name || category.title || category.id).filter(Boolean);
+            }
+            return [];
+        }
+
+        function parseRawScriptPath(value) {
+            const text = String(value || '');
+            const rawMatch = text.match(/raw\.githubusercontent\.com\/community-scripts\/ProxmoxVE\/main\/([^"'\s)]+)/i);
+            if (rawMatch) return rawMatch[1];
+
+            const githubMatch = text.match(/github\.com\/community-scripts\/ProxmoxVE\/blob\/main\/([^"'\s)]+)/i);
+            return githubMatch ? githubMatch[1] : '';
+        }
+
+        function preferredScriptPath(script) {
+            const slug = script.slug || slugify(script.name || '');
+            if (SCRIPT_PATH_OVERRIDES[slug]) return SCRIPT_PATH_OVERRIDES[slug];
+
+            const explicitPath = script.sourcePath || script.script_path || script.scriptPath || script.file_path || script.path;
+            if (explicitPath) return String(explicitPath).replace(/^\/+/, '');
+
+            const rawPath = parseRawScriptPath(script.rawScriptUrl || script.installCommand || script.sourceUrl || script.scriptUrl || '');
+            if (rawPath) return rawPath;
+
+            const kind = String(script.type || script.expand?.type?.type || '').toLowerCase();
+            if (kind.includes('vm') || slug.endsWith('-vm')) return `vm/${slug}.sh`;
+            return `ct/${slug}.sh`;
+        }
+
+        function deploySessionName(script) {
+            const slug = script.slug || slugify(script.name || 'script');
+            return script.sessionName || `pve-${slug}-${Date.now().toString(36)}`;
+        }
+
+        function readSidebarCollapsedPreference() {
+            try {
+                return window.localStorage.getItem('phs-sidebar-collapsed') === '1';
+            } catch (error) {
+                return false;
+            }
+        }
+
+        function writeSidebarCollapsedPreference(value) {
+            try {
+                window.localStorage.setItem('phs-sidebar-collapsed', value ? '1' : '0');
+            } catch (error) {}
+        }
+
+        function deployPayload(script, size) {
+            return {
+                name: script.name,
+                slug: script.slug || slugify(script.name),
+                sessionName: script.sessionName || deploySessionName(script),
+                hostId: script.hostId,
+                sessionMode: script.sessionMode || 'normal',
+                type: script.type,
+                sourcePath: script.sourcePath || preferredScriptPath(script),
+                rawScriptUrl: script.rawScriptUrl,
+                sourceUrl: script.sourceUrl,
+                installCommand: script.installCommand,
+                cols: size.cols,
+                rows: size.rows,
+            };
+        }
+
+        function DetailModal({ open, script, loading, error, onClose, onDeploy, onSource }) {
+            const detail = script || {};
+            const detailSlug = detail.slug || slugify(detail.name || '');
+            const scriptPath = detailSlug ? preferredScriptPath(detail) : '';
+            const officialUrl = detail.officialUrl || (detailSlug ? `https://community-scripts.org/scripts/${detailSlug}` : '');
+            const categories = scriptCategories(detail);
+            const installMethods = detail.install_methods || [];
+            const notes = normalizeNotes(detail.notes);
+            const latestRelease = detail.releases?.[0];
+            const updated = formatDate(detail.script_updated || detail.updated);
+            const installCommand = detail.installCommand || (scriptPath ? installCommandForPath(scriptPath) : '');
+            const canShowDetail = hasValue(detail.name) || hasValue(detail.description) || hasValue(installCommand);
+            const type = detail.type || detail.expand?.type?.type || '';
+            const sourceUrl = detail.sourceUrl || (scriptPath ? githubUrlForPath(scriptPath) : '');
+
+            return (
+                <div
+                    className={`modal detail-modal ${open ? 'open' : ''}`}
+                    onMouseDown={event => {
+                        if (event.target === event.currentTarget) onClose();
+                    }}
+                >
+                    <div className="detail-box" role="dialog" aria-modal="true" aria-label={detail.name ? `${detail.name} details` : 'Script details'}>
+                        <div className="detail-header">
+                            <ScriptLogo script={detail} />
+                            <div>
+                                <div className="detail-kicker">Proxmox Helper Script</div>
+                                <h2 className="detail-title">{detail.name || 'Script details'}</h2>
+                                <ScriptBadges script={detail} />
+                            </div>
+                            <button className="close-btn" onClick={onClose} title="Close details">
+                                <Icon name="x" />
+                            </button>
+                        </div>
+
+                        <div className="detail-body">
+                            {loading && <div className="detail-status">Loading official script details...</div>}
+                            {!loading && error && (
+                                <div className="detail-status error">
+                                    {canShowDetail ? `${error}. Showing the local script info below.` : error}
+                                </div>
+                            )}
+                            {canShowDetail && (
+                                <>
+                                    <section className="detail-section">
+                                        <h3>About</h3>
+                                        <p>{cleanText(detail.description) || 'No description was provided for this script.'}</p>
+                                    </section>
+
+                                    {categories.length > 0 && (
+                                        <section className="detail-section">
+                                            <h3>Categories</h3>
+                                            <div className="detail-chips">
+                                                {categories.map(category => (
+                                                    <span key={category} className="detail-chip">
+                                                        <Icon name={categoryIconName(category)} />{category}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </section>
+                                    )}
+
+                                    {notes.length > 0 && (
+                                        <section className="detail-section">
+                                            <h3>Notes</h3>
+                                            {notes.map((note, index) => (
+                                                <div key={`${note.type || 'note'}-${index}`} className="detail-note">
+                                                    <span className="note-type">{note.type || 'note'}</span>
+                                                    <p>{note.text}</p>
+                                                </div>
+                                            ))}
+                                        </section>
+                                    )}
+
+                                    <section className="detail-section">
+                                        <h3>Install</h3>
+                                        <pre className="install-command">{installCommand}</pre>
+                                    </section>
+
+                                    {installMethods.length > 0 && (
+                                        <section className="detail-section">
+                                            <h3>Install Methods</h3>
+                                            <div className="install-methods">
+                                                {installMethods.map((method, index) => (
+                                                    <InstallMethod key={`${method.type || 'method'}-${index}`} method={method} />
+                                                ))}
+                                            </div>
+                                        </section>
+                                    )}
+
+                                    <section className="detail-section">
+                                        <h3>Access</h3>
+                                        <div className="detail-grid">
+                                            <DetailField icon="external" label="Web URL" value={detail.port ? `http://<container-ip>:${detail.port}` : ''} />
+                                            <DetailField icon="server" label="Port" value={detail.port || ''} />
+                                            <DetailField icon="file" label="Config" value={detail.config_path} />
+                                            <DetailField icon="lock" label="Default User" value={detail.default_user} />
+                                            <DetailField icon="lock" label="Default Password" value={detail.default_passwd} />
+                                        </div>
+                                    </section>
+
+                                    <section className="detail-section">
+                                        <h3>Details</h3>
+                                        <div className="detail-overview">
+                                            <OverviewItem label="Type" value={type ? String(type).toUpperCase() : ''} />
+                                            <OverviewItem label="Runs In" value={detail.execute_in} />
+                                            <OverviewItem label="Updateable" value={detail.updateable ? 'Yes' : 'No'} />
+                                            <OverviewItem label="Updated" value={updated} />
+                                        </div>
+
+                                        <div className="detail-subgrid">
+                                            <div className="detail-panel">
+                                                <h4 className="detail-panel-title">Links</h4>
+                                                <div className="detail-grid">
+                                                    <DetailField icon="external" label="Website" value={detail.website ? 'Open website' : ''} href={detail.website} />
+                                                    <DetailField icon="external" label="Documentation" value={detail.documentation ? 'Open docs' : ''} href={detail.documentation} />
+                                                    <DetailField icon="file" label="GitHub" value={detail.github || ''} href={detail.github_url} />
+                                                    <DetailField icon="code" label="Script Source" value={scriptPath} href={sourceUrl} />
+                                                </div>
+                                            </div>
+
+                                            <div className="detail-panel">
+                                                <h4 className="detail-panel-title">Technical</h4>
+                                                <div className="detail-grid">
+                                                    <DetailField icon="chart" label="Category" value={categories} />
+                                                    <DetailField icon="spark" label="Latest Release" value={latestRelease?.name || latestRelease?.tag_name} href={latestRelease?.html_url} />
+                                                    <DetailField icon="clock" label="Created" value={formatDate(detail.script_created)} />
+                                                    <DetailField icon="code" label="Last Update PR" value={detail.last_update_commit ? 'Open pull request' : ''} href={detail.last_update_commit} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </section>
+
+                                    {detail.releases?.length > 0 && (
+                                        <section className="detail-section">
+                                            <h3>What's New</h3>
+                                            <div className="release-list">
+                                                {detail.releases.map(release => (
+                                                    <div key={release.html_url || release.tag_name || release.name} className="release-item">
+                                                        <div className="release-title">
+                                                            {release.html_url ? (
+                                                                <a className="detail-value" href={release.html_url} target="_blank" rel="noopener noreferrer">{release.name || release.tag_name}</a>
+                                                            ) : release.name || release.tag_name}
+                                                        </div>
+                                                        <div className="release-meta">{formatDate(release.published_at)}</div>
+                                                        {release.body && <div className="release-body">{release.body}</div>}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </section>
+                                    )}
+                                </>
+                            )}
+                        </div>
+
+                        <div className="detail-footer">
+                            <button className="icon-btn" onClick={() => onSource(detail)} title="Open script source">
+                                <Icon name="file" />
+                            </button>
+                            <button className="icon-btn" onClick={() => officialUrl && window.open(officialUrl, '_blank', 'noopener,noreferrer')} title="Open official page">
+                                <Icon name="external" />
+                            </button>
+                            <button className="deploy-btn" onClick={() => onDeploy(detail)} title={`Deploy ${detail.name || 'script'}`}>
+                                <Icon name="rocket" />Deploy
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function SearchModal({ open, query, results, total, inputRef, onQuery, onClose, onRead, onDeploy, onSource }) {
+            const resultCount = results.length;
+
+            return (
+                <div
+                    className={`modal search-modal ${open ? 'open' : ''}`}
+                    onMouseDown={event => {
+                        if (event.target === event.currentTarget) onClose();
+                    }}
+                >
+                    <div className="search-panel" role="dialog" aria-modal="true" aria-label="Search scripts">
+                        <div className="search-panel-header">
+                            <label className="global-search-field">
+                                <Icon name="search" />
+                                <input
+                                    ref={inputRef}
+                                    value={query}
+                                    onChange={event => onQuery(event.target.value)}
+                                    onKeyDown={event => {
+                                        if (event.key === 'Escape') {
+                                            event.preventDefault();
+                                            onClose();
+                                        }
+                                        if (event.key === 'Enter' && results[0]) {
+                                            event.preventDefault();
+                                            onRead(results[0]);
+                                        }
+                                    }}
+                                    placeholder="Search all scripts and categories"
+                                    aria-label="Search all scripts and categories"
+                                />
+                            </label>
+                            <button className="close-btn" onClick={onClose} title="Close search">
+                                <Icon name="x" />
+                            </button>
+                        </div>
+
+                        <div className="search-panel-body">
+                            <div className="search-summary">
+                                {query.trim() ? `${resultCount} matches` : `${total} scripts`}
+                            </div>
+                            {resultCount === 0 ? (
+                                <div className="empty-state">No scripts found.</div>
+                            ) : (
+                                <div className="search-results">
+                                    {results.map(script => {
+                                        const categories = scriptCategories(script);
+
+                                        return (
+                                            <article
+                                                key={script.slug || script.name}
+                                                className="search-result"
+                                                onClick={() => onRead(script)}
+                                                onKeyDown={event => {
+                                                    if (event.key === 'Enter' || event.key === ' ') {
+                                                        event.preventDefault();
+                                                        onRead(script);
+                                                    }
+                                                }}
+                                                role="button"
+                                                tabIndex="0"
+                                                title={`Read about ${script.name}`}
+                                            >
+                                                <ScriptLogo script={script} />
+                                                <div className="search-result-main">
+                                                    <div className="search-result-title">{script.name}</div>
+                                                    <div className="detail-chips">
+                                                        {categories.slice(0, 3).map(category => (
+                                                            <span key={category} className="detail-chip">
+                                                                <Icon name={categoryIconName(category)} />{category}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                    <p className="search-result-desc">{cleanText(script.description) || 'Proxmox Helper Script installation.'}</p>
+                                                </div>
+                                                <div className="search-result-actions" onClick={event => event.stopPropagation()}>
+                                                    <button className="read-btn" onClick={() => onRead(script)} title={`Read about ${script.name}`}>
+                                                        <Icon name="info" />Read
+                                                    </button>
+                                                    <button className="deploy-btn" onClick={() => onDeploy(script)} title={`Deploy ${script.name}`}>
+                                                        <Icon name="rocket" />Deploy
+                                                    </button>
+                                                    <button className="icon-btn" onClick={() => onSource(script)} title="Open script source">
+                                                        <Icon name="file" />
+                                                    </button>
+                                                </div>
+                                            </article>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function SettingsModal({ open, settings, onClose, onChange, onSave, onGenerateKey, onCopyKey }) {
+            const hosts = settings.hosts || [];
+            const updateHost = (index, patch) => {
+                onChange({
+                    ...settings,
+                    hosts: hosts.map((host, hostIndex) => hostIndex === index ? { ...host, ...patch } : host),
+                });
+            };
+            const removeHost = (index) => {
+                onChange({
+                    ...settings,
+                    hosts: hosts.filter((_, hostIndex) => hostIndex !== index),
+                });
+            };
+            const addHost = () => {
+                onChange({
+                    ...settings,
+                    hosts: [
+                        ...hosts,
+                        defaultHost(hosts.length),
+                    ],
+                });
+            };
+
+            return (
+                <div
+                    className={`modal settings-modal ${open ? 'open' : ''}`}
+                    onMouseDown={event => {
+                        if (event.target === event.currentTarget) onClose();
+                    }}
+                >
+                    <div className="settings-panel" role="dialog" aria-modal="true" aria-label="Settings">
+                        <div className="settings-header">
+                            <Icon name="settings" />
+                            <div className="settings-title">Settings</div>
+                            <button className="close-btn" onClick={onClose} title="Close settings">
+                                <Icon name="x" />
+                            </button>
+                        </div>
+
+                        <div className="settings-body">
+                            <section className="settings-section">
+                                <h3>Proxmox Hosts</h3>
+                                <p className="settings-hint">Add one or more Proxmox hosts, choose how each host authenticates over SSH, and decide how host key verification should behave.</p>
+                                <div className="host-form-list">
+                                    {hosts.map((host, index) => {
+                                        const authType = host.authType || 'app-key';
+                                        const hostKeyMode = host.hostKeyMode || 'accept-new';
+                                        const sessionMode = host.sessionMode || 'normal';
+
+                                        return (
+                                            <div key={host.id || index} className="host-form">
+                                                <div className="host-card-header">
+                                                    <div>
+                                                        <div className="host-card-title">{host.name || `Proxmox ${index + 1}`}</div>
+                                                        <div className="host-card-meta">{hostConnectionLabel(host)} | {hostAuthTypeLabel(authType)} | {hostSessionModeLabel(sessionMode)}</div>
+                                                    </div>
+                                                    <button className="icon-btn" onClick={() => removeHost(index)} title="Remove host">
+                                                        <Icon name="x" />
+                                                    </button>
+                                                </div>
+
+                                                <div className="host-card-section">
+                                                    <div className="host-card-section-title">Connection</div>
+                                                    <div className="settings-grid">
+                                                        <div className="settings-field">
+                                                            <label>Name</label>
+                                                            <input value={host.name || ''} onChange={event => updateHost(index, { name: event.target.value })} placeholder="Lab Proxmox" />
+                                                        </div>
+                                                        <div className="settings-field">
+                                                            <label>IP / Host</label>
+                                                            <input value={host.address || ''} onChange={event => updateHost(index, { address: event.target.value })} placeholder="192.168.8.12" />
+                                                        </div>
+                                                        <div className="settings-field">
+                                                            <label>Port</label>
+                                                            <input value={host.port || 22} onChange={event => updateHost(index, { port: event.target.value })} placeholder="22" />
+                                                        </div>
+                                                        <div className="settings-field">
+                                                            <label>User</label>
+                                                            <input value={host.user || 'root'} onChange={event => updateHost(index, { user: event.target.value })} placeholder="root" />
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="host-card-section">
+                                                    <div className="host-card-section-title">SSH & Terminal</div>
+                                                    <div className="settings-grid auth wide">
+                                                        <div className="settings-field">
+                                                            <label>Method</label>
+                                                            <select value={authType} onChange={event => updateHost(index, { authType: event.target.value })}>
+                                                                <option value="app-key">Generated app key</option>
+                                                                <option value="password">Saved password</option>
+                                                                <option value="private-key">Custom private key</option>
+                                                            </select>
+                                                        </div>
+                                                        <div className="settings-field">
+                                                            <label>Terminal Mode</label>
+                                                            <select value={sessionMode} onChange={event => updateHost(index, { sessionMode: event.target.value })}>
+                                                                <option value="normal">Normal SSH</option>
+                                                                <option value="persistent">Persistent reconnect (Recommended)</option>
+                                                            </select>
+                                                        </div>
+                                                        <div className="settings-field">
+                                                            <label>Host Key Check</label>
+                                                            <select value={hostKeyMode} onChange={event => updateHost(index, { hostKeyMode: event.target.value })}>
+                                                                <option value="accept-new">Accept new automatically</option>
+                                                                <option value="ask">Ask in terminal</option>
+                                                                <option value="off">Disable checking</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+
+                                                    {sessionMode === 'persistent' && (
+                                                        <p className="settings-note">Recommended when you want the deploy terminal to survive reconnects. This mode uses `tmux` on the remote host. If `tmux` is missing, deploy will show a short install guide for that host.</p>
+                                                    )}
+
+                                                    {sessionMode !== 'persistent' && (
+                                                        <p className="settings-note">Normal SSH is simpler, but if the local web app or SSH attachment disconnects, that terminal session ends and the UI starts a fresh one on reconnect.</p>
+                                                    )}
+
+                                                    {authType === 'app-key' && (
+                                                        <>
+                                                            {settings.sshKey?.publicKey ? (
+                                                                <>
+                                                                    <div className="settings-chip-row">
+                                                                        <span className="settings-chip"><Icon name="lock" />Generated key ready</span>
+                                                                        {settings.sshKey?.fingerprint && <span className="settings-chip"><Icon name="info" />{settings.sshKey.fingerprint}</span>}
+                                                                    </div>
+                                                                    <p className="settings-note">This host will use the SSH key generated by this app. Put the public key into the host's `authorized_keys` file below.</p>
+                                                                </>
+                                                            ) : (
+                                                                <p className="settings-note">No generated SSH key exists yet. Create one in the SSH Key section below, then paste it into this host's `authorized_keys` file.</p>
+                                                            )}
+                                                        </>
+                                                    )}
+
+                                                    {authType === 'password' && (
+                                                        <>
+                                                            <div className="settings-grid auth single">
+                                                                <div className="settings-field">
+                                                                    <label>Password</label>
+                                                                    <input
+                                                                        type="password"
+                                                                        autoComplete="current-password"
+                                                                        value={host.password || ''}
+                                                                        onChange={event => updateHost(index, { password: event.target.value })}
+                                                                        placeholder="root password"
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                            <p className="settings-note">The app will watch for SSH password prompts and fill this in automatically. It is stored locally in this app's settings file.</p>
+                                                        </>
+                                                    )}
+
+                                                    {authType === 'private-key' && (
+                                                        <>
+                                                            <div className="settings-grid auth extra">
+                                                                <div className="settings-field">
+                                                                    <label>Private Key Path</label>
+                                                                    <input
+                                                                        value={host.privateKeyPath || ''}
+                                                                        onChange={event => updateHost(index, { privateKeyPath: event.target.value })}
+                                                                        placeholder="C:\\Users\\you\\.ssh\\id_ed25519"
+                                                                    />
+                                                                </div>
+                                                                <div className="settings-field">
+                                                                    <label>Passphrase</label>
+                                                                    <input
+                                                                        type="password"
+                                                                        autoComplete="current-password"
+                                                                        value={host.passphrase || ''}
+                                                                        onChange={event => updateHost(index, { passphrase: event.target.value })}
+                                                                        placeholder="Optional passphrase"
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                            <p className="settings-note">Use this when you already have a local SSH key you want this app to use for this host.</p>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <div className="settings-actions" style={{ marginTop: 12 }}>
+                                    <button className="secondary-btn" onClick={addHost}><Icon name="server" />Add Host</button>
+                                </div>
+                            </section>
+
+                            <section className="settings-section">
+                                <h3>SSH Key</h3>
+                                {settings.sshKey?.publicKey ? (
+                                    <>
+                                        <div className="public-key-box">{settings.sshKey.publicKey}</div>
+                                        <div className="key-actions">
+                                            <button className="secondary-btn" onClick={onCopyKey}><Icon name="file" />Copy Public Key</button>
+                                            <button className="secondary-btn" onClick={onGenerateKey}><Icon name="lock" />Regenerate Key</button>
+                                        </div>
+                                        <p className="settings-hint">Paste this public key into `/root/.ssh/authorized_keys` on each Proxmox host that uses the generated app key method.</p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <button className="secondary-btn" onClick={onGenerateKey}><Icon name="lock" />Generate SSH Key</button>
+                                        <p className="settings-hint">The private key stays inside this local app folder. Only the public key goes into Proxmox.</p>
+                                    </>
+                                )}
+                            </section>
+                        </div>
+
+                        <div className="settings-footer">
+                            <button className="secondary-btn" onClick={onClose}>Cancel</button>
+                            <button className="deploy-btn" onClick={onSave}><Icon name="download" />Save</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function HostPickerModal({ open, hosts, script, onClose, onSelect }) {
+            return (
+                <div
+                    className={`modal host-picker-modal ${open ? 'open' : ''}`}
+                    onMouseDown={event => {
+                        if (event.target === event.currentTarget) onClose();
+                    }}
+                >
+                    <div className="host-picker-panel" role="dialog" aria-modal="true" aria-label="Choose Proxmox host">
+                        <div className="host-picker-header">
+                            <Icon name="server" />
+                            <div className="host-picker-title">Deploy {script?.name || 'script'} To</div>
+                            <button className="close-btn" onClick={onClose} title="Close host picker">
+                                <Icon name="x" />
+                            </button>
+                        </div>
+                        <div className="host-picker-body">
+                            <div className="host-picker-list">
+                                {hosts.map(host => (
+                                    <button key={host.id} className="host-option" onClick={() => onSelect(host.id)}>
+                                        <span className="group-icon"><Icon name="server" /></span>
+                                        <span>
+                                            <div className="host-option-title">{host.name}</div>
+                                            <div className="host-option-meta">{hostConnectionLabel(host)} | {hostAuthTypeLabel(host.authType || 'app-key')} | {hostSessionModeLabel(host.sessionMode || 'normal')}</div>
+                                        </span>
+                                        <span className="deploy-btn"><Icon name="rocket" />Deploy</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function App() {
+            const [categories, setCategories] = useState({});
+            const [selected, setSelected] = useState('');
+            const [query, setQuery] = useState('');
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState('');
+            const [showModal, setShowModal] = useState(false);
+            const [activeScript, setActiveScript] = useState(null);
+            const [showDetail, setShowDetail] = useState(false);
+            const [detailScript, setDetailScript] = useState(null);
+            const [detailLoading, setDetailLoading] = useState(false);
+            const [detailError, setDetailError] = useState('');
+            const [showSearch, setShowSearch] = useState(false);
+            const [globalQuery, setGlobalQuery] = useState('');
+            const [openSidebarGroups, setOpenSidebarGroups] = useState(() => new Set());
+            const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readSidebarCollapsedPreference());
+            const [settings, setSettings] = useState({ hosts: [], sshKey: null });
+            const [showSettings, setShowSettings] = useState(false);
+            const [showHostPicker, setShowHostPicker] = useState(false);
+            const [pendingDeployScript, setPendingDeployScript] = useState(null);
+            const [terminalCloseCountdown, setTerminalCloseCountdown] = useState(0);
+            const socket = useRef(io());
+            const term = useRef(new Terminal({
+                cursorBlink: true,
+                fontSize: 14,
+                fontFamily: 'Consolas, "Cascadia Mono", "Courier New", monospace',
+                lineHeight: 1,
+                scrollback: 2000,
+                theme: {
+                    background: '#000000',
+                    foreground: '#d7d7d7',
+                },
+            }));
+            const fitAddon = useRef(null);
+            const resizeObserver = useRef(null);
+            const inputDisposable = useRef(null);
+            const customKeyDisposable = useRef(null);
+            const modalOpenRef = useRef(false);
+            const activeScriptRef = useRef(null);
+            const lastDeploySizeRef = useRef({ cols: 120, rows: 36 });
+            const restartDeployOnReconnectRef = useRef(false);
+            const globalSearchInputRef = useRef(null);
+            const autoCloseTimerRef = useRef(null);
+            const autoCloseIntervalRef = useRef(null);
+            const autoCloseStartedRef = useRef(false);
+
+            function clearAutoCloseCountdown() {
+                if (autoCloseTimerRef.current) {
+                    clearTimeout(autoCloseTimerRef.current);
+                    autoCloseTimerRef.current = null;
+                }
+                if (autoCloseIntervalRef.current) {
+                    clearInterval(autoCloseIntervalRef.current);
+                    autoCloseIntervalRef.current = null;
+                }
+                autoCloseStartedRef.current = false;
+                setTerminalCloseCountdown(0);
+            }
+
+            function startTerminalAutoClose() {
+                if (!modalOpenRef.current || autoCloseStartedRef.current) return;
+
+                autoCloseStartedRef.current = true;
+                let remainingSeconds = 15;
+                setTerminalCloseCountdown(remainingSeconds);
+                term.current.write(`\r\n\x1b[32m[Success] Closing terminal in ${remainingSeconds}s...\x1b[0m`);
+
+                autoCloseIntervalRef.current = setInterval(() => {
+                    remainingSeconds -= 1;
+
+                    if (remainingSeconds <= 0) {
+                        if (autoCloseIntervalRef.current) {
+                            clearInterval(autoCloseIntervalRef.current);
+                            autoCloseIntervalRef.current = null;
+                        }
+                        setTerminalCloseCountdown(0);
+                        return;
+                    }
+
+                    setTerminalCloseCountdown(remainingSeconds);
+                    term.current.write(`\r\x1b[2K\x1b[32m[Success] Closing terminal in ${remainingSeconds}s...\x1b[0m`);
+                }, 1000);
+
+                autoCloseTimerRef.current = setTimeout(() => {
+                    closeTerminal();
+                }, 15000);
+            }
+
+            useEffect(() => {
+                if (!fitAddon.current && window.FitAddon) {
+                    fitAddon.current = new FitAddon.FitAddon();
+                    term.current.loadAddon(fitAddon.current);
+                }
+
+                fetch('/api/scripts')
+                    .then(r => {
+                        if (!r.ok) throw new Error('Failed to load scripts');
+                        return r.json();
+                    })
+                    .then(data => {
+                        const normalized = normalizeScripts(data);
+                        const categoryNames = Object.keys(normalized);
+                        const requestedScriptSlug = scriptSlugFromPath();
+                        const requestedScript = requestedScriptSlug
+                            ? Object.values(normalized)
+                                .flat()
+                                .find(script => (script.slug || slugify(script.name)) === requestedScriptSlug)
+                            : null;
+                        const requestedScriptCategory = requestedScript
+                            ? Object.entries(normalized)
+                                .find(([, scripts]) => scripts.some(script => (script.slug || slugify(script.name)) === requestedScriptSlug))?.[0]
+                            : '';
+
+                        setCategories(normalized);
+                        setSelected(categoryFromUrl(categoryNames) || requestedScriptCategory || categoryNames[0] || '');
+                        if (requestedScriptSlug) {
+                            openDetails(requestedScript || { slug: requestedScriptSlug, name: labelFromType(requestedScriptSlug) }, false);
+                        }
+                        setError('');
+                    })
+                    .catch(err => setError(err.message))
+                    .finally(() => setLoading(false));
+
+                fetch('/api/settings')
+                    .then(r => {
+                        if (!r.ok) throw new Error('Failed to load settings');
+                        return r.json();
+                    })
+                    .then(data => setSettings(data))
+                    .catch(() => setSettings({ hosts: [], sshKey: null }));
+
+                const handleOutput = d => term.current.write(d);
+                const handleServerDisconnect = () => {
+                    if (modalOpenRef.current) {
+                        if (activeScriptRef.current) restartDeployOnReconnectRef.current = true;
+                        term.current.write(
+                            activeScriptRef.current?.sessionMode === 'persistent'
+                                ? '\r\n\x1b[33m[Local server disconnected. The remote persistent session should keep running on the host. Reconnecting will reattach it.]\x1b[0m\r\n'
+                                : '\r\n\x1b[33m[Local server disconnected. The normal SSH attachment stops when the server restarts.]\x1b[0m\r\n'
+                        );
+                    }
+                };
+                const handleServerConnect = () => {
+                    if (modalOpenRef.current) {
+                        if (restartDeployOnReconnectRef.current && activeScriptRef.current) {
+                            restartDeployOnReconnectRef.current = false;
+                            const size = fitTerminal();
+                            lastDeploySizeRef.current = size;
+                            term.current.write(
+                                activeScriptRef.current?.sessionMode === 'persistent'
+                                    ? `\r\n\x1b[36m[Local server reconnected. Reattaching the persistent deploy session for ${activeScriptRef.current.name || activeScriptRef.current.slug}...]\x1b[0m\r\n`
+                                    : `\r\n\x1b[36m[Local server reconnected. Starting a fresh normal SSH session for ${activeScriptRef.current.name || activeScriptRef.current.slug}...]\x1b[0m\r\n`
+                            );
+                            socket.current.emit('deploy', deployPayload(activeScriptRef.current, size));
+                        } else {
+                            term.current.write('\r\n\x1b[36m[Local server reconnected.]\x1b[0m\r\n');
+                        }
+                    }
+                };
+                const handleDeployExit = ({ exitCode } = {}) => {
+                    activeScriptRef.current = null;
+                    restartDeployOnReconnectRef.current = false;
+
+                    if (exitCode === 0 && modalOpenRef.current) {
+                        startTerminalAutoClose();
+                        return;
+                    }
+
+                    clearAutoCloseCountdown();
+                };
+                const handleDeploySuccess = () => {
+                    startTerminalAutoClose();
+                };
+
+                socket.current.on('output', handleOutput);
+                socket.current.on('disconnect', handleServerDisconnect);
+                socket.current.on('connect', handleServerConnect);
+                socket.current.on('deploy-success', handleDeploySuccess);
+                socket.current.on('deploy-exit', handleDeployExit);
+                inputDisposable.current = term.current.onData(data => socket.current.emit('input', data));
+                customKeyDisposable.current = term.current.attachCustomKeyEventHandler(event => {
+                    if (!modalOpenRef.current || event.type !== 'keydown') return true;
+
+                    const keyMap = {
+                        ArrowUp: '\x1b[A',
+                        ArrowDown: '\x1b[B',
+                        ArrowRight: '\x1b[C',
+                        ArrowLeft: '\x1b[D',
+                        Enter: '\r',
+                        Tab: event.shiftKey ? '\x1b[Z' : '\t',
+                        Backspace: '\x7f',
+                        Escape: '\x1b',
+                    };
+
+                    let data = keyMap[event.key];
+                    if (event.ctrlKey && event.key.toLowerCase() === 'c') data = '\x03';
+                    if (event.ctrlKey && event.key.toLowerCase() === 'd') data = '\x04';
+                    if (!data) return true;
+
+                    event.preventDefault();
+                    socket.current.emit('input', data);
+                    return false;
+                });
+
+                const handleWindowResize = () => {
+                    if (modalOpenRef.current) requestAnimationFrame(fitTerminal);
+                };
+
+                const terminalHasFocus = () => {
+                    const element = term.current.element;
+                    const active = document.activeElement;
+                    return Boolean(element && active && (element.contains(active) || element.classList.contains('focus')));
+                };
+
+                const handleKeyDown = event => {
+                    if (!modalOpenRef.current) return;
+                    if (terminalHasFocus()) return;
+
+                    if (event.key === 'Tab') {
+                        event.preventDefault();
+                        term.current.focus();
+                        return;
+                    }
+
+                    const keyMap = {
+                        ArrowUp: '\x1b[A',
+                        ArrowDown: '\x1b[B',
+                        ArrowRight: '\x1b[C',
+                        ArrowLeft: '\x1b[D',
+                        Enter: '\r',
+                        Backspace: '\x7f',
+                        Escape: '\x1b',
+                    };
+
+                    let data = keyMap[event.key];
+                    if (event.ctrlKey && event.key.toLowerCase() === 'c') data = '\x03';
+                    if (event.ctrlKey && event.key.toLowerCase() === 'd') data = '\x04';
+                    if (!data && event.key.length === 1 && !event.metaKey && !event.altKey) data = event.key;
+                    if (!data) return;
+
+                    event.preventDefault();
+                    socket.current.emit('input', data);
+                    term.current.focus();
+                };
+
+                window.addEventListener('resize', handleWindowResize);
+                document.addEventListener('keydown', handleKeyDown, true);
+
+                return () => {
+                    socket.current.off('output', handleOutput);
+                    socket.current.off('disconnect', handleServerDisconnect);
+                    socket.current.off('connect', handleServerConnect);
+                    socket.current.off('deploy-success', handleDeploySuccess);
+                    socket.current.off('deploy-exit', handleDeployExit);
+                    inputDisposable.current?.dispose();
+                    customKeyDisposable.current?.dispose();
+                    resizeObserver.current?.disconnect();
+                    clearAutoCloseCountdown();
+                    window.removeEventListener('resize', handleWindowResize);
+                    document.removeEventListener('keydown', handleKeyDown, true);
+                };
+            }, []);
+
+            const categoryNames = Object.keys(categories);
+            const scripts = categories[selected] || [];
+            const sidebarGroups = useMemo(() => sidebarGroupsForCategories(categoryNames), [categories]);
+            const totalScripts = useMemo(
+                () => Object.values(categories).reduce((total, list) => total + list.length, 0),
+                [categories]
+            );
+
+            useEffect(() => {
+                if (!selected) return;
+
+                const group = sidebarGroups.find(item => item.categories.includes(selected));
+                if (!group) return;
+
+                setOpenSidebarGroups(current => {
+                    if (current.has(group.name)) return current;
+                    const next = new Set(current);
+                    next.add(group.name);
+                    return next;
+                });
+            }, [selected, sidebarGroups]);
+
+            useEffect(() => writeSidebarCollapsedPreference(sidebarCollapsed), [sidebarCollapsed]);
+
+            const filteredScripts = useMemo(() => {
+                const q = query.trim().toLowerCase();
+                if (!q) return scripts;
+                return scripts.filter(script => {
+                    const haystack = `${script.name || ''} ${cleanText(script.description)} ${script.slug || ''}`.toLowerCase();
+                    return haystack.includes(q);
+                });
+            }, [query, scripts]);
+
+            const globalScripts = useMemo(() => {
+                const byScript = new Map();
+
+                Object.entries(categories).forEach(([categoryName, scriptList]) => {
+                    scriptList.forEach(script => {
+                        const key = script.slug || slugify(script.name);
+                        const existing = byScript.get(key);
+                        const mergedCategories = [
+                            ...(existing?.categories || scriptCategories(script)),
+                            categoryName,
+                        ].filter(Boolean);
+
+                        byScript.set(key, {
+                            ...(existing || script),
+                            ...script,
+                            categories: [...new Set(mergedCategories)],
+                        });
+                    });
+                });
+
+                return Array.from(byScript.values())
+                    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+            }, [categories]);
+
+            const globalSearchResults = useMemo(() => {
+                const q = globalQuery.trim().toLowerCase();
+                const ranked = globalScripts.map(script => {
+                    const categoriesText = scriptCategories(script).join(' ');
+                    const notesText = normalizeNotes(script.notes).map(note => note.text).join(' ');
+                    const haystack = [
+                        script.name,
+                        script.slug,
+                        cleanText(script.description),
+                        categoriesText,
+                        notesText,
+                        script.type,
+                        script.sourcePath,
+                    ].join(' ').toLowerCase();
+
+                    let score = 0;
+                    if (!q) score = 1;
+                    else if (String(script.name || '').toLowerCase().startsWith(q)) score = 4;
+                    else if (String(script.name || '').toLowerCase().includes(q)) score = 3;
+                    else if (categoriesText.toLowerCase().includes(q)) score = 2;
+                    else if (haystack.includes(q)) score = 1;
+
+                    return { script, score };
+                }).filter(item => item.score > 0);
+
+                return ranked
+                    .sort((a, b) => b.score - a.score || String(a.script.name || '').localeCompare(String(b.script.name || '')))
+                    .slice(0, 80)
+                    .map(item => item.script);
+            }, [globalQuery, globalScripts]);
+
+            const measureCell = () => {
+                const probe = document.createElement('span');
+                probe.textContent = 'W';
+                probe.style.position = 'absolute';
+                probe.style.visibility = 'hidden';
+                probe.style.whiteSpace = 'pre';
+                probe.style.fontFamily = 'Consolas, "Cascadia Mono", "Courier New", monospace';
+                probe.style.fontSize = '14px';
+                probe.style.lineHeight = '14px';
+                document.body.appendChild(probe);
+                const rect = probe.getBoundingClientRect();
+                probe.remove();
+
+                return {
+                    width: rect.width || 8,
+                    height: rect.height || 14,
+                };
+            };
+
+            const calculateTerminalSize = () => {
+                const terminalBody = document.getElementById('term-body');
+                if (!terminalBody) return { cols: 120, rows: 36 };
+
+                const rect = terminalBody.getBoundingClientRect();
+                const cell = measureCell();
+
+                return {
+                    cols: Math.max(80, Math.min(Math.floor(rect.width / cell.width), 240)),
+                    rows: Math.max(24, Math.min(Math.floor(rect.height / cell.height), 80)),
+                };
+            };
+
+            const fitTerminal = () => {
+                const size = calculateTerminalSize();
+
+                try {
+                    term.current.resize(size.cols, size.rows);
+                } catch (_err) {
+                    if (fitAddon.current && term.current.element) {
+                        fitAddon.current.fit();
+                    }
+                }
+
+                socket.current.emit('resize', size);
+                return size;
+            };
+
+            const openTerminal = () => {
+                const terminalBody = document.getElementById('term-body');
+                if (!terminalBody) return { cols: 120, rows: 36 };
+
+                if (!term.current.element) {
+                    term.current.open(terminalBody);
+                }
+
+                if (!resizeObserver.current && window.ResizeObserver) {
+                    resizeObserver.current = new ResizeObserver(() => {
+                        requestAnimationFrame(fitTerminal);
+                    });
+                    resizeObserver.current.observe(terminalBody);
+                }
+
+                const size = fitTerminal();
+                setTimeout(() => {
+                    fitTerminal();
+                    term.current.focus();
+                }, 0);
+
+                return size;
+            };
+
+            const startDeployToHost = (script, hostId) => {
+                clearAutoCloseCountdown();
+
+                const selectedHost = (settings.hosts || []).find(host => host.id === hostId) || {};
+
+                const deployScript = {
+                    ...script,
+                    hostId,
+                    sessionName: deploySessionName(script),
+                    sessionMode: selectedHost.sessionMode || 'normal',
+                    hostName: selectedHost.name || '',
+                };
+
+                setShowDetail(false);
+                setActiveScript(deployScript);
+                activeScriptRef.current = deployScript;
+                restartDeployOnReconnectRef.current = false;
+                modalOpenRef.current = true;
+                setShowModal(true);
+                setTimeout(() => {
+                    const size = openTerminal();
+                    lastDeploySizeRef.current = size;
+                    term.current.clear();
+                    socket.current.emit('deploy', deployPayload(deployScript, size));
+                }, 100);
+            };
+
+            const deploy = (script) => {
+                const hosts = settings.hosts || [];
+
+                if (hosts.length === 0) {
+                    setShowSettings(true);
+                    return;
+                }
+
+                if (hosts.length > 1) {
+                    setPendingDeployScript(script);
+                    setShowHostPicker(true);
+                    return;
+                }
+
+                startDeployToHost(script, hosts[0].id);
+            };
+
+            const openDetails = (script, updateUrl = true) => {
+                const slug = script.slug || slugify(script.name);
+                const scriptWithFallbacks = {
+                    ...script,
+                    categories: scriptCategories(script).length ? scriptCategories(script) : selected ? [selected] : [],
+                };
+
+                setDetailScript(scriptWithFallbacks);
+                setDetailError('');
+                setDetailLoading(true);
+                setShowDetail(true);
+                if (updateUrl && slug) {
+                    window.history.replaceState({}, '', `/scripts/${encodeURIComponent(slug)}`);
+                }
+
+                fetch(`/api/scripts/${encodeURIComponent(slug)}`)
+                    .then(r => {
+                        if (!r.ok) throw new Error('Failed to load script details');
+                        return r.json();
+                    })
+                    .then(data => {
+                        setDetailScript({ ...scriptWithFallbacks, ...data });
+                        setDetailError('');
+                    })
+                    .catch(err => setDetailError(err.message))
+                    .finally(() => setDetailLoading(false));
+            };
+
+            const openSearch = () => {
+                setShowSearch(true);
+                setTimeout(() => globalSearchInputRef.current?.focus(), 0);
+            };
+
+            const closeSearch = () => {
+                setShowSearch(false);
+            };
+
+            const readFromSearch = (script) => {
+                const categoriesForScript = scriptCategories(script);
+                const nextCategory = categoriesForScript.find(categoryName => categories[categoryName]) || selected;
+
+                if (nextCategory) {
+                    setSelected(nextCategory);
+                    setQuery('');
+                }
+
+                setShowSearch(false);
+                openDetails(script);
+            };
+
+            const deployFromSearch = (script) => {
+                setShowSearch(false);
+                deploy(script);
+            };
+
+            const saveSettings = () => {
+                fetch('/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settings),
+                })
+                    .then(r => {
+                        if (!r.ok) throw new Error('Failed to save settings');
+                        return r.json();
+                    })
+                    .then(data => {
+                        setSettings(data);
+                        setShowSettings(false);
+                    })
+                    .catch(err => alert(err.message));
+            };
+
+            const generateKey = () => {
+                fetch('/api/settings/ssh-key', { method: 'POST' })
+                    .then(r => {
+                        if (!r.ok) throw new Error('Failed to generate SSH key');
+                        return r.json();
+                    })
+                    .then(data => setSettings(data))
+                    .catch(err => alert(err.message));
+            };
+
+            const copyPublicKey = () => {
+                const publicKey = settings.sshKey?.publicKey || '';
+                if (!publicKey) return;
+                navigator.clipboard?.writeText(publicKey).catch(() => {});
+            };
+
+            const selectDeployHost = (hostId) => {
+                if (!pendingDeployScript) return;
+                setShowHostPicker(false);
+                const script = pendingDeployScript;
+                setPendingDeployScript(null);
+                startDeployToHost(script, hostId);
+            };
+
+            const openSource = (script) => {
+                window.open(script.sourceUrl || githubUrlForPath(preferredScriptPath(script)), '_blank', 'noopener,noreferrer');
+            };
+
+            const closeTerminal = () => {
+                clearAutoCloseCountdown();
+
+                modalOpenRef.current = false;
+                socket.current.emit('detach');
+                activeScriptRef.current = null;
+                restartDeployOnReconnectRef.current = false;
+                setShowModal(false);
+            };
+
+            const closeDetails = () => {
+                setShowDetail(false);
+                if (window.location.pathname.startsWith('/scripts/')) {
+                    const url = new URL('/categories', window.location.origin);
+                    if (selected) url.searchParams.set('category', categorySlug(selected));
+                    window.history.replaceState({}, '', url);
+                }
+            };
+
+            const selectCategory = (categoryName) => {
+                setSelected(categoryName);
+                setQuery('');
+
+                const url = new URL('/categories', window.location.origin);
+                url.searchParams.set('category', categorySlug(categoryName));
+                window.history.replaceState({}, '', url);
+            };
+
+            const toggleSidebarGroup = (groupName) => {
+                setOpenSidebarGroups(current => {
+                    const next = new Set(current);
+                    if (next.has(groupName)) {
+                        next.delete(groupName);
+                    } else {
+                        next.add(groupName);
+                    }
+                    return next;
+                });
+            };
+
+            return (
+                <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+                    <aside className="sidebar">
+                        <div className="brand">
+                            <div className="brand-main">
+                                <span className="brand-mark" title="Proxmox Helper Scripts"><Icon name="library" /></span>
+                                <div className="brand-copy">
+                                    <div className="brand-title">Proxmox Helper Scripts</div>
+                                    <div className="brand-subtitle">{totalScripts || 'Loading'} scripts</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="sidebar-sections">
+                            <div className="sidebar-heading">Sections</div>
+                            <div className="sidebar-groups">
+                                {sidebarGroups.map(group => {
+                                    const isOpen = openSidebarGroups.has(group.name);
+                                    const groupTotal = group.categories.reduce((total, categoryName) => total + (categories[categoryName]?.length || 0), 0);
+
+                                    return (
+                                        <section key={group.name} className={`sidebar-group ${isOpen ? 'open' : ''}`}>
+                                            <button
+                                                className="sidebar-group-toggle"
+                                                onClick={() => toggleSidebarGroup(group.name)}
+                                                title={`${group.name} sections`}
+                                                aria-expanded={isOpen}
+                                            >
+                                                <span className="group-icon"><Icon name={group.icon} /></span>
+                                                <span className="group-name">{group.name}</span>
+                                                <span className="group-count">{groupTotal}</span>
+                                                <span className="group-chevron"><Icon name="chevron" /></span>
+                                            </button>
+                                            <div className="sidebar-group-list">
+                                                {group.categories.map(cat => (
+                                                    <button
+                                                        key={cat}
+                                                        className={`sidebar-item ${selected === cat ? 'active' : ''}`}
+                                                        onClick={() => selectCategory(cat)}
+                                                        title={displayCategoryName(cat)}
+                                                    >
+                                                        <span className="category-icon"><Icon name={categoryIconName(cat)} title={displayCategoryName(cat)} /></span>
+                                                        <span className="category-name">{displayCategoryName(cat)}</span>
+                                                        <span className="count-pill">{categories[cat].length}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </section>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                        <div className="sidebar-bottom">
+                            <div className="sidebar-toolbar">
+                                <button className="sidebar-settings-btn" onClick={() => setShowSettings(true)} title="Settings">
+                                    <Icon name="settings" />
+                                    <span className="sidebar-settings-label">Settings</span>
+                                </button>
+                                <button
+                                    className="sidebar-view-btn"
+                                    onClick={() => setSidebarCollapsed(current => !current)}
+                                    title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                                    aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                                >
+                                    <Icon name={sidebarCollapsed ? 'panel-open' : 'panel-close'} />
+                                </button>
+                            </div>
+                        </div>
+                    </aside>
+
+                    <main className="main">
+                        <div className="main-stage">
+                            <section className="topbar">
+                                <div className="topbar-lead">
+                                    <div className="topbar-icon"><Icon name={categoryIconName(selected || '')} /></div>
+                                    <div className="topbar-copy">
+                                        <div className="eyebrow">Script Library</div>
+                                        <h1>{displayCategoryName(selected || 'Loading')}</h1>
+                                        <div className="header-meta">
+                                            <span className="meta-pill"><Icon name={categoryIconName(selected || '')} />{scripts.length} in category</span>
+                                            <span className="meta-pill"><Icon name="library" />{categoryNames.length} categories</span>
+                                            <span className="meta-pill"><Icon name="spark" />{totalScripts} total</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="topbar-actions">
+                                    <div className="topbar-label">Search Library</div>
+                                    <div className="search-shell">
+                                        <label className="search-box">
+                                            <span className="search-box-icon"><Icon name="search" /></span>
+                                            <input
+                                                value={globalQuery}
+                                                onFocus={openSearch}
+                                                onClick={openSearch}
+                                                onChange={event => {
+                                                    setGlobalQuery(event.target.value);
+                                                    setShowSearch(true);
+                                                }}
+                                                placeholder="Search all scripts"
+                                                aria-label="Search all scripts"
+                                            />
+                                            <span className="search-meta"><Icon name="library" />{totalScripts} scripts</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </section>
+
+                            {loading && <div className="loading-state">Loading scripts...</div>}
+                            {!loading && error && <div className="error-state">{error}</div>}
+                            {!loading && !error && filteredScripts.length === 0 && (
+                                <div className="empty-state">No scripts found in this category.</div>
+                            )}
+
+                            {!loading && !error && filteredScripts.length > 0 && (
+                                <section className="grid">
+                                    {filteredScripts.map(script => (
+                                        <article key={script.slug || script.name} className="card">
+                                            <div className="card-main">
+                                                <div
+                                                    className="card-top readable"
+                                                    onClick={() => openDetails(script)}
+                                                    onKeyDown={event => {
+                                                        if (event.key === 'Enter' || event.key === ' ') {
+                                                            event.preventDefault();
+                                                            openDetails(script);
+                                                        }
+                                                    }}
+                                                    role="button"
+                                                    tabIndex="0"
+                                                    title={`Read about ${script.name}`}
+                                                >
+                                                    <div className="card-top-main">
+                                                        <ScriptLogo script={script} />
+                                                        <div className="script-title-wrap">
+                                                            <h2>{script.name}</h2>
+                                                            <ScriptBadges script={script} />
+                                                        </div>
+                                                    </div>
+                                                    <span className="card-top-cue" aria-hidden="true">
+                                                        <Icon name="chevron" />
+                                                    </span>
+                                                </div>
+                                                <div className="card-summary">
+                                                    <p>{cleanText(script.description) || 'Proxmox Helper Script installation.'}</p>
+                                                </div>
+                                            </div>
+                                            <div className="card-actions">
+                                                <button className="deploy-btn" onClick={() => deploy(script)} title={`Deploy ${script.name}`}>
+                                                    <Icon name="rocket" />Deploy
+                                                </button>
+                                                <button className="read-btn" onClick={() => openDetails(script)} title={`Read about ${script.name}`}>
+                                                    <Icon name="info" />Read
+                                                </button>
+                                                <button className="icon-btn" onClick={() => openSource(script)} title="Open script source">
+                                                    <Icon name="file" />
+                                                </button>
+                                            </div>
+                                        </article>
+                                    ))}
+                                </section>
+                            )}
+                        </div>
+                    </main>
+
+                    <DetailModal
+                        open={showDetail}
+                        script={detailScript}
+                        loading={detailLoading}
+                        error={detailError}
+                        onClose={closeDetails}
+                        onDeploy={deploy}
+                        onSource={openSource}
+                    />
+
+                    <SearchModal
+                        open={showSearch}
+                        query={globalQuery}
+                        results={globalSearchResults}
+                        total={globalScripts.length}
+                        inputRef={globalSearchInputRef}
+                        onQuery={setGlobalQuery}
+                        onClose={closeSearch}
+                        onRead={readFromSearch}
+                        onDeploy={deployFromSearch}
+                        onSource={openSource}
+                    />
+
+                    <SettingsModal
+                        open={showSettings}
+                        settings={settings}
+                        onClose={() => setShowSettings(false)}
+                        onChange={setSettings}
+                        onSave={saveSettings}
+                        onGenerateKey={generateKey}
+                        onCopyKey={copyPublicKey}
+                    />
+
+                    <HostPickerModal
+                        open={showHostPicker}
+                        hosts={settings.hosts || []}
+                        script={pendingDeployScript}
+                        onClose={() => {
+                            setShowHostPicker(false);
+                            setPendingDeployScript(null);
+                        }}
+                        onSelect={selectDeployHost}
+                    />
+
+                    <div className={`modal ${showModal ? 'open' : ''}`} onMouseDown={() => term.current.element && term.current.focus()}>
+                        <div id="terminal-box">
+                            <div className="terminal-header">
+                                <Icon name="rocket" />
+                                <div className="terminal-title">{activeScript ? activeScript.name : 'Deploy script'}</div>
+                                {terminalCloseCountdown > 0 && (
+                                    <div className="terminal-countdown">Closing in {terminalCloseCountdown}s</div>
+                                )}
+                                <div className="terminal-spacer"></div>
+                                <button className="close-btn" onClick={closeTerminal} title="Close terminal">
+                                    <Icon name="x" />
+                                </button>
+                            </div>
+                            <div id="term-body"></div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
